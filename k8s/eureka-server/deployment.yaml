@@ -1,0 +1,98 @@
+# k8s/eureka-server/deployment.yaml
+#
+# Same shape as k8s/auth-service/deployment.yaml (the reference pattern) - image/name/port/env
+# swapped, plus the differences specific to being the service registry itself:
+#   - No CONFIG_SERVER_HOST/PORT - this service is self-configured (application-<profile>.properties
+#     baked into the image), not a Config Server client, to avoid a circular bootstrap dependency
+#     (Config Server can't fetch its own config from Config Server, and Eureka must be up before
+#     Config Server can register with it).
+#   - EUREKA_PEER_URLS points at this Deployment's own k8s Service DNS name, not a StatefulSet's
+#     stable per-pod hostnames - a simplified peer-awareness pattern (Eureka clients/peers
+#     round-robin across replicas via the shared Service) rather than true peer-to-peer
+#     replication. Sufficient for this platform's scale; revisit with a headless Service +
+#     StatefulSet if per-node peer identity becomes necessary.
+#   - replicas: 2, not 3 - Eureka's own client-side caching means a brief registry blip during a
+#     rolling update is tolerated by every other service anyway (see clickkart-eureka-server's own
+#     response-cache-update-interval-ms), so the extra third replica buys less here than it does
+#     for the stateless application-tier services.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clickkart-eureka-server
+  namespace: clickkart-app
+  labels:
+    app: clickkart-eureka-server
+    tier: infrastructure
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: clickkart-eureka-server
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: clickkart-eureka-server
+        tier: infrastructure
+    spec:
+      containers:
+        - name: clickkart-eureka-server
+          image: REGISTRY_PLACEHOLDER/clickkart-eureka-server:IMAGE_TAG_PLACEHOLDER
+          ports:
+            - containerPort: 8761
+          envFrom:
+            - configMapRef:
+                name: clickkart-eureka-server-config
+            - secretRef:
+                name: clickkart-eureka-server-secrets
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "prod"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8761
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8761
+            initialDelaySeconds: 40
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickkart-eureka-server-config
+  namespace: clickkart-app
+data:
+  EUREKA_HOSTNAME: "clickkart-eureka-server.clickkart-app.svc.cluster.local"
+  EUREKA_DASHBOARD_USERNAME: "admin"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: clickkart-eureka-server-secrets
+  namespace: clickkart-app
+type: Opaque
+stringData:
+  EUREKA_DASHBOARD_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"
+  EUREKA_PEER_URLS: "REPLACED_BY_SECRETS_MANAGER" # e.g. http://admin:<password>@clickkart-eureka-server.clickkart-app.svc.cluster.local:8761/eureka/

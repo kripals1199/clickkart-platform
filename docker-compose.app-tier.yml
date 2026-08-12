@@ -1,0 +1,286 @@
+# docker-compose.app-tier.yml
+#
+# Application tier ONLY. Every service here is a Spring Boot 4.x image built from this repo.
+# There is deliberately no database (or Redis) service definition in this file - per-service
+# datastore connection details come in entirely through environment variables with NO
+# hardcoded fallback, pointing at whatever Tier-3 endpoint you provide (a real managed
+# Postgres/ElastiCache instance, or the local stand-ins in docker-compose.dev-infra.yml).
+#
+# Local dev, full stack against the Tier-3 stand-ins:
+#   docker compose -f docker-compose.dev-infra.yml -f docker-compose.app-tier.yml up -d
+#
+# Local dev, full stack against a real shared/managed dev database:
+#   AUTH_DB_HOST=my-dev-db.abc123.us-east-1.rds.amazonaws.com \
+#   AUTH_DB_PASSWORD=... REVOCATION_REDIS_HOST=my-dev-cache.cache.amazonaws.com \
+#   docker compose -f docker-compose.app-tier.yml up -d
+#
+# Each service also still has its own docker/docker-compose.yml with a bundled Postgres, kept
+# unchanged for single-service inner-loop development - this file is the whole-stack,
+# tier-boundary-correct alternative, not a replacement for it.
+
+services:
+  eureka-server:
+    build:
+      context: ./clickkart-eureka-server
+      dockerfile: Dockerfile
+    image: clickkart/eureka-server:1.0.0
+    container_name: clickkart-eureka-server
+    ports:
+      - "${EUREKA_PORT:-8761}:8761"
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      SERVER_PORT: 8761
+      EUREKA_HOSTNAME: ${EUREKA_HOSTNAME:-eureka-server}
+      EUREKA_DASHBOARD_USERNAME: ${EUREKA_DASHBOARD_USERNAME:-admin}
+      EUREKA_DASHBOARD_PASSWORD: ${EUREKA_DASHBOARD_PASSWORD:?EUREKA_DASHBOARD_PASSWORD must be set}
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8761/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks:
+      - clickkart-net
+
+  config-server:
+    build:
+      context: ./clickkart-config-server
+      dockerfile: Dockerfile
+    image: clickkart/config-server:1.0.0
+    container_name: clickkart-config-server
+    ports:
+      - "${CONFIG_SERVER_PORT:-8888}:8888"
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      SERVER_PORT: 8888
+      CONFIG_SERVER_HOSTNAME: ${CONFIG_SERVER_HOSTNAME:-config-server}
+      CONFIG_SERVER_USERNAME: ${CONFIG_SERVER_USERNAME:-admin}
+      CONFIG_SERVER_PASSWORD: ${CONFIG_SERVER_PASSWORD:?CONFIG_SERVER_PASSWORD must be set}
+      EUREKA_SERVER_HOST: eureka-server
+      EUREKA_SERVER_PORT: 8761
+      EUREKA_DASHBOARD_USERNAME: ${EUREKA_DASHBOARD_USERNAME:-admin}
+      EUREKA_DASHBOARD_PASSWORD: ${EUREKA_DASHBOARD_PASSWORD:?EUREKA_DASHBOARD_PASSWORD must be set}
+    depends_on:
+      eureka-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8888/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks:
+      - clickkart-net
+
+  api-gateway:
+    build:
+      context: ./clickkart-api-gateway
+      dockerfile: Dockerfile
+    image: clickkart/api-gateway:1.0.0
+    container_name: clickkart-api-gateway
+    ports:
+      - "${GATEWAY_PORT:-8080}:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      SERVER_PORT: 8080
+      CONFIG_SERVER_HOST: config-server
+      CONFIG_SERVER_PORT: 8888
+      CONFIG_SERVER_USERNAME: ${CONFIG_SERVER_USERNAME:-admin}
+      CONFIG_SERVER_PASSWORD: ${CONFIG_SERVER_PASSWORD:?CONFIG_SERVER_PASSWORD must be set}
+      GATEWAY_HOSTNAME: ${GATEWAY_HOSTNAME:-api-gateway}
+      GATEWAY_ADMIN_USERNAME: ${GATEWAY_ADMIN_USERNAME:-admin}
+      GATEWAY_ADMIN_PASSWORD: ${GATEWAY_ADMIN_PASSWORD:?GATEWAY_ADMIN_PASSWORD must be set}
+      EUREKA_SERVER_HOST: eureka-server
+      EUREKA_SERVER_PORT: 8761
+      EUREKA_DASHBOARD_USERNAME: ${EUREKA_DASHBOARD_USERNAME:-admin}
+      EUREKA_DASHBOARD_PASSWORD: ${EUREKA_DASHBOARD_PASSWORD:?EUREKA_DASHBOARD_PASSWORD must be set}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set - must match auth-service's JWT_SECRET exactly}
+      # Tier-3 cache endpoint - no container defined in this file, see header comment.
+      REDIS_HOST: ${GATEWAY_REDIS_HOST:-gateway-redis}
+      REDIS_PORT: ${GATEWAY_REDIS_PORT:-6379}
+      REDIS_PASSWORD: ${GATEWAY_REDIS_PASSWORD:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:4200}
+    depends_on:
+      config-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks:
+      - clickkart-net
+
+  auth-service:
+    build:
+      context: ./clickkart-auth-service
+      dockerfile: Dockerfile
+    image: clickkart/auth-service:1.0.0
+    container_name: clickkart-auth-service
+    ports:
+      - "${AUTH_SERVICE_PORT:-8081}:8081"
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      SERVER_PORT: 8081
+      CONFIG_SERVER_HOST: config-server
+      CONFIG_SERVER_PORT: 8888
+      CONFIG_SERVER_USERNAME: ${CONFIG_SERVER_USERNAME:-admin}
+      CONFIG_SERVER_PASSWORD: ${CONFIG_SERVER_PASSWORD:?CONFIG_SERVER_PASSWORD must be set}
+      AUTH_SERVICE_HOSTNAME: ${AUTH_SERVICE_HOSTNAME:-auth-service}
+      AUTH_SERVICE_ADMIN_USERNAME: ${AUTH_SERVICE_ADMIN_USERNAME:-admin}
+      AUTH_SERVICE_ADMIN_PASSWORD: ${AUTH_SERVICE_ADMIN_PASSWORD:?AUTH_SERVICE_ADMIN_PASSWORD must be set}
+      EUREKA_SERVER_HOST: eureka-server
+      EUREKA_DASHBOARD_USERNAME: ${EUREKA_DASHBOARD_USERNAME:-admin}
+      EUREKA_DASHBOARD_PASSWORD: ${EUREKA_DASHBOARD_PASSWORD:?EUREKA_DASHBOARD_PASSWORD must be set}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set - must match api-gateway's JWT_SECRET exactly}
+      # Tier-3 database endpoint - no container defined in this file, see header comment.
+      DB_HOST: ${AUTH_DB_HOST:?AUTH_DB_HOST must point to the Postgres endpoint for auth-service (managed instance, or docker-compose.dev-infra.yml for local dev)}
+      DB_PORT: ${AUTH_DB_PORT:-5432}
+      DB_NAME: ${AUTH_DB_NAME:-clickkart_auth}
+      DB_USERNAME: ${AUTH_DB_USERNAME:-clickkart_auth}
+      DB_PASSWORD: ${AUTH_DB_PASSWORD:?AUTH_DB_PASSWORD must be set}
+      # Tier-3-adjacent cache endpoint - no container defined in this file, see header comment.
+      REVOCATION_REDIS_HOST: ${GATEWAY_REDIS_HOST:-gateway-redis}
+      REVOCATION_REDIS_PORT: ${GATEWAY_REDIS_PORT:-6379}
+      # Empty/unset (default) is safe - trusts nothing but the immediate socket address. Set to
+      # the real proxy's CIDR (e.g. the Gateway's) to honor X-Forwarded-For from it specifically.
+      AUTH_TRUSTED_PROXY_CIDRS: ${AUTH_TRUSTED_PROXY_CIDRS:-}
+    depends_on:
+      config-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8081/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks:
+      - clickkart-net
+
+  notification-service:
+    build:
+      context: ./clickkart-notification-service
+      dockerfile: Dockerfile
+    image: clickkart/notification-service:1.0.0
+    container_name: clickkart-notification-service
+    ports:
+      - "${NOTIFICATION_SERVICE_PORT:-8082}:8082"
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      SERVER_PORT: 8082
+      CONFIG_SERVER_HOST: config-server
+      CONFIG_SERVER_PORT: 8888
+      CONFIG_SERVER_USERNAME: ${CONFIG_SERVER_USERNAME:-admin}
+      CONFIG_SERVER_PASSWORD: ${CONFIG_SERVER_PASSWORD:?CONFIG_SERVER_PASSWORD must be set}
+      NOTIFICATION_SERVICE_HOSTNAME: ${NOTIFICATION_SERVICE_HOSTNAME:-notification-service}
+      EUREKA_SERVER_HOST: eureka-server
+      EUREKA_DASHBOARD_USERNAME: ${EUREKA_DASHBOARD_USERNAME:-admin}
+      EUREKA_DASHBOARD_PASSWORD: ${EUREKA_DASHBOARD_PASSWORD:?EUREKA_DASHBOARD_PASSWORD must be set}
+      # Tier-3 database endpoint - no container defined in this file, see header comment.
+      DB_HOST: ${NOTIFICATION_DB_HOST:?NOTIFICATION_DB_HOST must point to the Postgres endpoint for notification-service (managed instance, or docker-compose.dev-infra.yml for local dev)}
+      DB_PORT: ${NOTIFICATION_DB_PORT:-5432}
+      DB_NAME: ${NOTIFICATION_DB_NAME:-clickkart_notification}
+      DB_USERNAME: ${NOTIFICATION_DB_USERNAME:-clickkart_notification}
+      DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD:?NOTIFICATION_DB_PASSWORD must be set}
+    depends_on:
+      config-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8082/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks:
+      - clickkart-net
+
+  audit-log-service:
+    build:
+      context: ./clickkart-audit-log-service
+      dockerfile: Dockerfile
+    image: clickkart/audit-log-service:1.0.0
+    container_name: clickkart-audit-log-service
+    ports:
+      - "${AUDIT_LOG_SERVICE_PORT:-8083}:8083"
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      SERVER_PORT: 8083
+      CONFIG_SERVER_HOST: config-server
+      CONFIG_SERVER_PORT: 8888
+      CONFIG_SERVER_USERNAME: ${CONFIG_SERVER_USERNAME:-admin}
+      CONFIG_SERVER_PASSWORD: ${CONFIG_SERVER_PASSWORD:?CONFIG_SERVER_PASSWORD must be set}
+      AUDIT_LOG_SERVICE_HOSTNAME: ${AUDIT_LOG_SERVICE_HOSTNAME:-audit-log-service}
+      EUREKA_SERVER_HOST: eureka-server
+      EUREKA_DASHBOARD_USERNAME: ${EUREKA_DASHBOARD_USERNAME:-admin}
+      EUREKA_DASHBOARD_PASSWORD: ${EUREKA_DASHBOARD_PASSWORD:?EUREKA_DASHBOARD_PASSWORD must be set}
+      # Tier-3 database endpoint - no container defined in this file, see header comment.
+      DB_HOST: ${AUDIT_LOG_DB_HOST:?AUDIT_LOG_DB_HOST must point to the Postgres endpoint for audit-log-service (managed instance, or docker-compose.dev-infra.yml for local dev)}
+      DB_PORT: ${AUDIT_LOG_DB_PORT:-5432}
+      DB_NAME: ${AUDIT_LOG_DB_NAME:-clickkart_audit_log}
+      DB_USERNAME: ${AUDIT_LOG_DB_USERNAME:-clickkart_audit_log}
+      DB_PASSWORD: ${AUDIT_LOG_DB_PASSWORD:?AUDIT_LOG_DB_PASSWORD must be set}
+    depends_on:
+      config-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8083/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks:
+      - clickkart-net
+
+  captcha-service:
+    build:
+      context: ./clickkart-captcha-service
+      dockerfile: Dockerfile
+    image: clickkart/captcha-service:1.0.0
+    container_name: clickkart-captcha-service
+    ports:
+      - "${CAPTCHA_SERVICE_PORT:-8084}:8084"
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      SERVER_PORT: 8084
+      CONFIG_SERVER_HOST: config-server
+      CONFIG_SERVER_PORT: 8888
+      CONFIG_SERVER_USERNAME: ${CONFIG_SERVER_USERNAME:-admin}
+      CONFIG_SERVER_PASSWORD: ${CONFIG_SERVER_PASSWORD:?CONFIG_SERVER_PASSWORD must be set}
+      CAPTCHA_SERVICE_HOSTNAME: ${CAPTCHA_SERVICE_HOSTNAME:-captcha-service}
+      EUREKA_SERVER_HOST: eureka-server
+      EUREKA_DASHBOARD_USERNAME: ${EUREKA_DASHBOARD_USERNAME:-admin}
+      EUREKA_DASHBOARD_PASSWORD: ${EUREKA_DASHBOARD_PASSWORD:?EUREKA_DASHBOARD_PASSWORD must be set}
+      # Tier-3-adjacent cache endpoint - no container defined in this file, see header comment.
+      # Own Redis, not shared with gateway-service/auth-service's - challenge/answer storage has
+      # no business sharing a cache instance with rate-limit counters or revoked-jti entries.
+      CAPTCHA_REDIS_HOST: ${CAPTCHA_REDIS_HOST:-captcha-redis}
+      CAPTCHA_REDIS_PORT: ${CAPTCHA_REDIS_PORT:-6379}
+    depends_on:
+      config-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8084/actuator/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks:
+      - clickkart-net
+
+  # Services 5-11 (User, Product, Category, Inventory, Cart, Order, Payment) and Admin (14) join
+  # this file as their own `docker build` entries, following the exact pattern above, as each is
+  # built per the build order - not stubbed out here ahead of having real code to build.
+
+# Declared the same way as docker-compose.dev-infra.yml (driver: bridge), not external: true -
+# Compose treats an identical network declaration across merged files as idempotent, so this
+# still works correctly when only this file is run standalone (e.g. against a real managed
+# Tier-3 endpoint, no dev-infra file at all - see this file's header comment). external: true
+# previously made the documented combined `-f dev-infra -f app-tier up -d` command fail on a
+# genuinely clean Docker install/network prune: it required dev-infra.yml to have already been
+# run at least once, standalone, to create the network first - an undocumented, easy-to-hit
+# ordering dependency the header comment's own usage instructions didn't actually satisfy.
+networks:
+  clickkart-net:
+    name: clickkart-net
+    driver: bridge

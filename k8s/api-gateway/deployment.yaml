@@ -1,0 +1,108 @@
+# k8s/api-gateway/deployment.yaml
+#
+# Same shape as k8s/auth-service/deployment.yaml (the reference pattern) - image/name/port/env
+# swapped, plus the differences specific to this being the platform's only internet-facing
+# entry point:
+#   - This is the one service that ALSO needs a k8s Ingress (or LoadBalancer Service) in front of
+#     it - every other service's Service stays ClusterIP-only. See service-and-scaling.yaml.
+#   - JWT_SECRET must be byte-for-byte identical to clickkart-auth-service's JWT_SECRET (the
+#     Gateway validates tokens Auth Service mints) - same secrets-manager entry should back both.
+#   - REDIS_HOST/PORT/PASSWORD: a real managed cache endpoint in prod, not a k8s Service pointing
+#     at a Pod - this is the Gateway's own rate-limit/revocation-check Redis (see clickkart-
+#     api-gateway's own properties), unrelated to any other service's Redis.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clickkart-api-gateway
+  namespace: clickkart-app
+  labels:
+    app: clickkart-api-gateway
+    tier: edge
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: clickkart-api-gateway
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: clickkart-api-gateway
+        tier: edge
+    spec:
+      containers:
+        - name: clickkart-api-gateway
+          image: REGISTRY_PLACEHOLDER/clickkart-api-gateway:IMAGE_TAG_PLACEHOLDER
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: clickkart-api-gateway-config
+            - secretRef:
+                name: clickkart-api-gateway-secrets
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "prod"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8080
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8080
+            initialDelaySeconds: 40
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickkart-api-gateway-config
+  namespace: clickkart-app
+data:
+  CONFIG_SERVER_HOST: "clickkart-config-server.clickkart-app.svc.cluster.local"
+  CONFIG_SERVER_PORT: "8888"
+  GATEWAY_HOSTNAME: "clickkart-api-gateway.clickkart-app.svc.cluster.local"
+  GATEWAY_ADMIN_USERNAME: "admin"
+  EUREKA_SERVER_HOST: "clickkart-eureka-server.clickkart-app.svc.cluster.local"
+  EUREKA_SERVER_PORT: "8761"
+  EUREKA_DASHBOARD_USERNAME: "admin"
+  # Real frontend origin(s), comma-separated - not a secret, so deliberately NOT the
+  # REPLACED_BY_SECRETS_MANAGER convention used below (that's reserved for the actual Secret,
+  # to signal "the secrets manager fills this in at deploy time" - using it here would wrongly
+  # imply this value needs the same external-injection path, when it's just a plain per-environment
+  # config value someone edits directly before apply).
+  ALLOWED_ORIGINS: "REPLACE_WITH_REAL_FRONTEND_ORIGIN"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: clickkart-api-gateway-secrets
+  namespace: clickkart-app
+type: Opaque
+stringData:
+  CONFIG_SERVER_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"
+  EUREKA_DASHBOARD_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"
+  GATEWAY_ADMIN_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"
+  JWT_SECRET: "REPLACED_BY_SECRETS_MANAGER" # must exactly match clickkart-auth-service-secrets' JWT_SECRET
+  REDIS_HOST: "REPLACED_BY_SECRETS_MANAGER" # managed cache endpoint
+  REDIS_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"

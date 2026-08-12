@@ -1,0 +1,24 @@
+# k8s/config-server/service-and-scaling.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickkart-config-server
+  namespace: clickkart-app
+spec:
+  type: ClusterIP
+  selector:
+    app: clickkart-config-server
+  ports:
+    - port: 8888
+      targetPort: 8888
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: clickkart-config-server
+  namespace: clickkart-app
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: clickkart-config-server

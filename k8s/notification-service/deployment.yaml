@@ -1,0 +1,93 @@
+# k8s/notification-service/deployment.yaml
+#
+# Same shape as k8s/auth-service/deployment.yaml (the reference pattern) - image/name/port/env
+# swapped. Internal, service-to-service only - no user-facing traffic reaches this directly.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clickkart-notification-service
+  namespace: clickkart-app
+  labels:
+    app: clickkart-notification-service
+    tier: application
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: clickkart-notification-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: clickkart-notification-service
+        tier: application
+    spec:
+      containers:
+        - name: clickkart-notification-service
+          image: REGISTRY_PLACEHOLDER/clickkart-notification-service:IMAGE_TAG_PLACEHOLDER
+          ports:
+            - containerPort: 8082
+          envFrom:
+            - configMapRef:
+                name: clickkart-notification-service-config
+            - secretRef:
+                name: clickkart-notification-service-secrets
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "prod"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8082
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8082
+            initialDelaySeconds: 40
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false # logback writes to ./logs
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickkart-notification-service-config
+  namespace: clickkart-app
+data:
+  CONFIG_SERVER_HOST: "clickkart-config-server.clickkart-app.svc.cluster.local"
+  CONFIG_SERVER_PORT: "8888"
+  EUREKA_SERVER_HOST: "clickkart-eureka-server.clickkart-app.svc.cluster.local"
+  # No-default placeholders in the prod branch's clickkart-notification-service.properties - the
+  # pod cannot start without them (see k8s/auth-service/deployment.yaml for the full rationale).
+  NOTIFICATION_SERVICE_HOSTNAME: "clickkart-notification-service.clickkart-app.svc.cluster.local"
+  EUREKA_DASHBOARD_USERNAME: "admin"
+  DB_USERNAME: "clickkart_notification_app"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: clickkart-notification-service-secrets
+  namespace: clickkart-app
+type: Opaque
+stringData:
+  CONFIG_SERVER_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"
+  EUREKA_DASHBOARD_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"
+  DB_HOST: "REPLACED_BY_SECRETS_MANAGER"
+  DB_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"

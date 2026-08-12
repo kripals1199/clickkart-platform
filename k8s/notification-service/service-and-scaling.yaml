@@ -1,0 +1,44 @@
+# k8s/notification-service/service-and-scaling.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickkart-notification-service
+  namespace: clickkart-app
+spec:
+  type: ClusterIP
+  selector:
+    app: clickkart-notification-service
+  ports:
+    - port: 8082
+      targetPort: 8082
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: clickkart-notification-service
+  namespace: clickkart-app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: clickkart-notification-service
+  minReplicas: 3
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: clickkart-notification-service
+  namespace: clickkart-app
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: clickkart-notification-service

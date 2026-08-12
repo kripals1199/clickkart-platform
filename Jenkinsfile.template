@@ -1,0 +1,195 @@
+// Jenkinsfile.template
+//
+// Canonical CI/CD pipeline for a single ClickKart microservice. Per the "no shared common
+// lib, every service fully independent" rule extended to CI: there is no shared Jenkins
+// library here - copy this file into each service's own repo root as `Jenkinsfile`, set
+// SERVICE_NAME/SERVICE_PORT below, and it's that service's complete, independent pipeline.
+// (clickkart-auth-service/Jenkinsfile is the first real instance of this template.)
+//
+// Stages: checkout -> build -> unit test -> dependency scan (OWASP) -> docker build -> Trivy
+// scan -> push -> deploy (prod gated by manual approval) -> smoke test -> documented rollback.
+
+pipeline {
+    agent any
+
+    tools {
+        maven 'maven-3.9'
+        jdk 'temurin-21'
+    }
+
+    parameters {
+        choice(name: 'DEPLOY_ENV', choices: ['none', 'dev', 'qa', 'prod'], description: 'Environment to deploy to after a successful build. "none" just builds/tests/scans.')
+    }
+
+    environment {
+        SERVICE_NAME   = 'clickkart-SERVICE-NAME'          // e.g. clickkart-auth-service
+        SERVICE_PORT   = 'SERVICE-PORT'                     // e.g. 8081
+        REGISTRY       = credentials('clickkart-registry-url')       // e.g. 123456789.dkr.ecr.us-east-1.amazonaws.com
+        REGISTRY_CREDS = 'clickkart-registry-credentials'            // Jenkins credential ID
+        IMAGE_TAG      = "${env.BUILD_NUMBER}-${env.GIT_COMMIT?.take(7) ?: 'local'}"
+        IMAGE          = "${REGISTRY}/${SERVICE_NAME}:${IMAGE_TAG}"
+        TRIVY_SEVERITY = 'CRITICAL,HIGH'
+    }
+
+    options {
+        timestamps()
+        disableConcurrentBuilds()
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+    }
+
+    stages {
+
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
+        stage('Build') {
+            steps {
+                sh 'mvn -B -q clean compile'
+            }
+        }
+
+        stage('Unit Test') {
+            steps {
+                // JUnit 5 + Mockito tests, run via the Surefire plugin already configured in
+                // each service's pom.xml. `verify` (not just `test`) so the jacoco:check goal
+                // every service's pom.xml binds to the verify phase actually runs and FAILS
+                // this stage if line coverage drops below jacoco.line.ratio.minimum - coverage
+                // is a gate here, not just a report nobody reads. Every service's pom.xml must
+                // carry the jacoco-maven-plugin block (see clickkart-auth-service/pom.xml for
+                // the canonical execution/rule config) for this stage to mean anything.
+                sh 'mvn -B verify'
+            }
+            post {
+                always {
+                    junit testResults: 'target/surefire-reports/*.xml', allowEmptyResults: false
+                    jacoco execPattern: 'target/jacoco.exec',
+                           classPattern: 'target/classes',
+                           sourcePattern: 'src/main/java',
+                           exclusionPattern: '**/*MapperImpl.class,**/*Application.class'
+                    archiveArtifacts artifacts: 'target/site/jacoco/**', allowEmptyArchive: true
+                }
+            }
+        }
+
+        stage('Dependency Scan (OWASP)') {
+            steps {
+                // Source-level SCA (CVEs in this service's own dependency tree), distinct from
+                // the Trivy stage below (CVEs in the built container image). Requires every
+                // service's pom.xml to carry the org.owasp:dependency-check-maven plugin block
+                // (see clickkart-auth-service/pom.xml for the canonical config) - same pattern
+                // as the jacoco-maven-plugin requirement above.
+                sh 'mvn -B org.owasp:dependency-check-maven:check'
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'target/dependency-check-report.*', allowEmptyArchive: true
+                }
+            }
+        }
+
+        stage('Docker Build') {
+            steps {
+                sh "docker build -t ${IMAGE} -t ${REGISTRY}/${SERVICE_NAME}:latest ."
+            }
+        }
+
+        stage('Image Scan (Trivy)') {
+            steps {
+                // Fails the build on any CRITICAL/HIGH finding - the gate is the exit code,
+                // not just the report. Adjust TRIVY_SEVERITY to loosen/tighten the bar.
+                sh """
+                    trivy image \
+                        --severity ${TRIVY_SEVERITY} \
+                        --exit-code 1 \
+                        --format table \
+                        --ignore-unfixed \
+                        ${IMAGE}
+                """
+            }
+        }
+
+        stage('Push to Registry') {
+            when {
+                anyOf { branch 'main'; branch 'release/*' }
+            }
+            steps {
+                withCredentials([usernamePassword(credentialsId: REGISTRY_CREDS, usernameVariable: 'REG_USER', passwordVariable: 'REG_PASS')]) {
+                    sh """
+                        echo "\$REG_PASS" | docker login ${REGISTRY} -u "\$REG_USER" --password-stdin
+                        docker push ${IMAGE}
+                        docker push ${REGISTRY}/${SERVICE_NAME}:latest
+                    """
+                }
+            }
+        }
+
+        stage('Approval Gate (prod only)') {
+            when {
+                allOf {
+                    expression { params.DEPLOY_ENV == 'prod' }
+                    anyOf { branch 'main'; branch 'release/*' }
+                }
+            }
+            steps {
+                // Deliberately outside any node{}/agent block context requiring an executor -
+                // input can sit idle without holding a build slot.
+                timeout(time: 24, unit: 'HOURS') {
+                    input message: "Deploy ${SERVICE_NAME}:${IMAGE_TAG} to PRODUCTION?", submitter: 'clickkart-release-approvers'
+                }
+            }
+        }
+
+        stage('Deploy') {
+            when {
+                expression { params.DEPLOY_ENV != 'none' }
+            }
+            steps {
+                // kubectl targets the application-tier namespace only - it never touches
+                // anything Tier-3 (no Postgres/Redis manifest lives in this repo's k8s/ dir).
+                // A prior image tag is always recorded so rollback is a one-command operation
+                // (see Rollback step below) rather than a rebuild.
+                sh """
+                    kubectl config use-context clickkart-${params.DEPLOY_ENV}
+                    kubectl -n clickkart-app set image deployment/${SERVICE_NAME} ${SERVICE_NAME}=${IMAGE} --record
+                    kubectl -n clickkart-app rollout status deployment/${SERVICE_NAME} --timeout=180s
+                """
+            }
+        }
+
+        stage('Smoke Test') {
+            when {
+                expression { params.DEPLOY_ENV != 'none' }
+            }
+            steps {
+                sh """
+                    curl -fsS --retry 5 --retry-delay 5 \
+                        https://${SERVICE_NAME}.${params.DEPLOY_ENV}.clickkart.internal/actuator/health \
+                        | grep -q '"status":"UP"'
+                """
+            }
+        }
+    }
+
+    post {
+        failure {
+            script {
+                if (params.DEPLOY_ENV != 'none') {
+                    echo "Build/deploy failed. Rollback is NOT automatic by design (a failed " +
+                         "smoke test after a bad rollout deserves a human look, not a silent " +
+                         "auto-revert that could mask the real problem). To roll back:"
+                    echo "  kubectl -n clickkart-app rollout undo deployment/${SERVICE_NAME}"
+                    echo "  kubectl -n clickkart-app rollout status deployment/${SERVICE_NAME}"
+                    echo "This reverts to the immediately prior ReplicaSet's image - k8s keeps " +
+                         "rollout history (see 'kubectl rollout history') so a specific older " +
+                         "revision can also be targeted with --to-revision=N if needed."
+                }
+            }
+        }
+        always {
+            sh 'docker logout ${REGISTRY} || true'
+        }
+    }
+}

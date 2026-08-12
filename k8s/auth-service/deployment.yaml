@@ -1,0 +1,122 @@
+# k8s/auth-service/deployment.yaml
+#
+# Reference pattern for the application tier - every other service's manifest follows this
+# exact shape (image/name/port/env swapped). Points worth calling out against the brief:
+#   - No volumeMounts, no PersistentVolumeClaim anywhere in this file: the pod is disposable,
+#     any of its N replicas can be killed and rescheduled with zero data loss because nothing
+#     it owns is stateful.
+#   - Every DB/cache/secret value comes from a Secret or ConfigMap, never a literal in this
+#     file - `envFrom` pulls the whole set in one line so a new required var doesn't mean
+#     editing every manifest.
+#   - Liveness/readiness both hit /actuator/health, matching the orchestration requirement.
+#   - resources.requests/limits are set so the scheduler can actually bin-pack correctly at
+#     "large concurrent user base" scale instead of every pod silently competing for whatever's
+#     left on the node.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clickkart-auth-service
+  namespace: clickkart-app
+  labels:
+    app: clickkart-auth-service
+    tier: application
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: clickkart-auth-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: clickkart-auth-service
+        tier: application
+    spec:
+      containers:
+        - name: clickkart-auth-service
+          image: REGISTRY_PLACEHOLDER/clickkart-auth-service:IMAGE_TAG_PLACEHOLDER
+          ports:
+            - containerPort: 8081
+          envFrom:
+            - configMapRef:
+                name: clickkart-auth-service-config
+            - secretRef:
+                name: clickkart-auth-service-secrets
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "prod"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8081
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8081
+            initialDelaySeconds: 40
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false # logback writes to ./logs - see the service's Dockerfile
+      # No nodeSelector/affinity toward any "database" node pool - this pod has no business
+      # being colocated with anything stateful; it reaches Tier 3 purely over the network.
+---
+# ConfigMap: non-secret values only. Real values come from the Config Server via
+# CONFIG_SERVER_HOST/PORT below - this ConfigMap's job is just telling the pod where to find
+# that Config Server and which profile to boot into, not duplicating its content.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickkart-auth-service-config
+  namespace: clickkart-app
+data:
+  CONFIG_SERVER_HOST: "clickkart-config-server.clickkart-app.svc.cluster.local"
+  CONFIG_SERVER_PORT: "8888"
+  EUREKA_SERVER_HOST: "clickkart-eureka-server.clickkart-app.svc.cluster.local"
+  # Every one of the following is a NO-DEFAULT placeholder in clickkart-auth-service.properties
+  # on the prod branch - the pod fails to start outright if any is absent, since Spring can't
+  # resolve the placeholder. They were missing here entirely, so this Deployment could never have
+  # come up in a real cluster. Usernames/hostnames/origins are non-secret and belong in this
+  # ConfigMap; only their matching passwords live in the Secret below.
+  AUTH_SERVICE_HOSTNAME: "clickkart-auth-service.clickkart-app.svc.cluster.local"
+  EUREKA_DASHBOARD_USERNAME: "admin"
+  AUTH_SERVICE_ADMIN_USERNAME: "admin"
+  # The service's own least-privilege database role - never the postgres superuser.
+  DB_USERNAME: "clickkart_auth_app"
+  # Real browser origin(s) of the frontend. Deliberately not "*": auth.allowed-origins feeds a
+  # CORS config that runs with credentials enabled.
+  ALLOWED_ORIGINS: "https://REPLACE_WITH_REAL_FRONTEND_ORIGIN"
+---
+# Secret: shape only. In a real cluster this is populated by the secrets manager integration
+# (e.g. External Secrets Operator syncing from AWS Secrets Manager / Vault) as part of deploy,
+# never `kubectl apply`'d with real values committed to this file.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: clickkart-auth-service-secrets
+  namespace: clickkart-app
+type: Opaque
+stringData:
+  CONFIG_SERVER_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"
+  AUTH_SERVICE_ADMIN_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"
+  EUREKA_DASHBOARD_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"
+  JWT_SECRET: "REPLACED_BY_SECRETS_MANAGER"
+  DB_HOST: "REPLACED_BY_SECRETS_MANAGER" # managed Postgres endpoint - never a k8s Service pointing at a Pod
+  DB_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"
+  REVOCATION_REDIS_HOST: "REPLACED_BY_SECRETS_MANAGER" # managed cache endpoint

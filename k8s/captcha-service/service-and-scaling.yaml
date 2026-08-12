@@ -1,0 +1,44 @@
+# k8s/captcha-service/service-and-scaling.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickkart-captcha-service
+  namespace: clickkart-app
+spec:
+  type: ClusterIP
+  selector:
+    app: clickkart-captcha-service
+  ports:
+    - port: 8084
+      targetPort: 8084
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: clickkart-captcha-service
+  namespace: clickkart-app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: clickkart-captcha-service
+  minReplicas: 3
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: clickkart-captcha-service
+  namespace: clickkart-app
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: clickkart-captcha-service

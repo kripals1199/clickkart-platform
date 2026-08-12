@@ -1,0 +1,43 @@
+# --- Local environment files containing REAL secrets ---
+# .env holds the actual generated per-service database passwords; .env.test-boot / .env.qa-boot
+# hold the same values for local profile-verification runs. None may ever be committed.
+# The *.example template IS tracked - it contains only placeholders and provisioning docs.
+.env
+.env.*
+!.env.dev-infra.example
+
+# --- Service source trees ---
+# Each service is its own repository (see the README's repository table). They are cloned as
+# siblings here for local multi-service development, and must not be vendored into this repo.
+clickkart-eureka-server/
+clickkart-config-server/
+clickkart-api-gateway/
+clickkart-auth-service/
+clickkart-notification-service/
+clickkart-audit-log-service/
+clickkart-captcha-service/
+clickkart-config-repository/
+
+# --- Build / runtime artifacts ---
+target/
+logs/
+*.log
+
+# --- IDE / editor ---
+# .metadata/ is the Eclipse *workspace* directory that happens to sit at this path - tens of
+# thousands of files including local history snapshots of every edit. Never committable.
+.metadata/
+.sonarlint/
+.recommenders/
+RemoteSystemsTempFiles/
+.settings/
+.classpath
+.project
+.factorypath
+.idea/
+*.iml
+.vscode/
+
+# --- OS ---
+.DS_Store
+Thumbs.db

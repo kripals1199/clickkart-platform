@@ -1,0 +1,52 @@
+# docker-compose.dev-infra.yml
+#
+# Tier-3 STAND-IN for local development only. This file exists specifically so it, not
+# docker-compose.app-tier.yml, is the one place a database or cache container is allowed to
+# appear - the application tier's compose file must never own a datastore's lifecycle.
+#
+# Nothing in here is what actually deploys. Staging/prod point AUTH_DB_HOST, GATEWAY_REDIS_HOST
+# etc. at a real managed Postgres/ElastiCache endpoint instead of these containers.
+#
+# Postgres is deliberately NOT containerized here - local dev connects to a real, already-
+# installed native PostgreSQL instance instead (see .env.dev-infra.example: AUTH_DB_HOST etc.
+# point at host.docker.internal), so app-tier containers reach the same durable data across
+# `docker compose down`/`up` cycles without a Docker volume in between. Redis (ephemeral by
+# nature - rate-limit counters, revoked-jti entries, captcha challenges) still runs here as a
+# container, since there's no equivalent "just use what's already on the host" case for it.
+#
+# Usage:
+#   docker compose -f docker-compose.dev-infra.yml -f docker-compose.app-tier.yml up -d
+
+services:
+  gateway-redis:
+    image: redis:7-alpine
+    container_name: clickkart-gateway-redis
+    ports:
+      - "${GATEWAY_REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - clickkart-net
+
+  # Own Redis for captcha-service - deliberately not shared with gateway-redis (rate-limit
+  # counters/revoked-jti entries have no business living alongside challenge/answer hashes).
+  captcha-redis:
+    image: redis:7-alpine
+    container_name: clickkart-captcha-redis
+    ports:
+      - "${CAPTCHA_REDIS_HOST_PORT:-6380}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - clickkart-net
+
+networks:
+  clickkart-net:
+    name: clickkart-net
+    driver: bridge

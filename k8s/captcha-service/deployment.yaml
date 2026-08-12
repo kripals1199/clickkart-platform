@@ -1,0 +1,97 @@
+# k8s/captcha-service/deployment.yaml
+#
+# Same shape as k8s/notification-service/deployment.yaml - image/name/port/env swapped.
+# Internal for /verify (service-to-service only), but /challenge is reached by real end-user
+# traffic through the Gateway, so this - unlike notification/audit-log-service - does sit on a
+# genuine user-facing request path even though it's not directly internet-exposed itself.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clickkart-captcha-service
+  namespace: clickkart-app
+  labels:
+    app: clickkart-captcha-service
+    tier: application
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: clickkart-captcha-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: clickkart-captcha-service
+        tier: application
+    spec:
+      containers:
+        - name: clickkart-captcha-service
+          image: REGISTRY_PLACEHOLDER/clickkart-captcha-service:IMAGE_TAG_PLACEHOLDER
+          ports:
+            - containerPort: 8084
+          envFrom:
+            - configMapRef:
+                name: clickkart-captcha-service-config
+            - secretRef:
+                name: clickkart-captcha-service-secrets
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "prod"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8084
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8084
+            initialDelaySeconds: 40
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false # logback writes to ./logs
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickkart-captcha-service-config
+  namespace: clickkart-app
+data:
+  CONFIG_SERVER_HOST: "clickkart-config-server.clickkart-app.svc.cluster.local"
+  CONFIG_SERVER_PORT: "8888"
+  EUREKA_SERVER_HOST: "clickkart-eureka-server.clickkart-app.svc.cluster.local"
+  # No-default placeholders in the prod branch's clickkart-captcha-service.properties - the pod
+  # cannot start without them (see k8s/auth-service/deployment.yaml for the full rationale).
+  CAPTCHA_SERVICE_HOSTNAME: "clickkart-captcha-service.clickkart-app.svc.cluster.local"
+  EUREKA_DASHBOARD_USERNAME: "admin"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: clickkart-captcha-service-secrets
+  namespace: clickkart-app
+type: Opaque
+stringData:
+  CONFIG_SERVER_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"
+  EUREKA_DASHBOARD_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"
+  CAPTCHA_REDIS_HOST: "REPLACED_BY_SECRETS_MANAGER"
+  # No-default placeholder in the prod branch's config - a managed cache endpoint requires auth,
+  # so unlike dev (where it's an empty-string default against a local container) this must be
+  # supplied, and belongs here rather than the ConfigMap.
+  CAPTCHA_REDIS_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"

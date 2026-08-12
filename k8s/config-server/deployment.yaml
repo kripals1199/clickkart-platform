@@ -1,0 +1,98 @@
+# k8s/config-server/deployment.yaml
+#
+# Same shape as k8s/auth-service/deployment.yaml (the reference pattern) - image/name/port/env
+# swapped, plus the differences specific to this being Spring Cloud Config Server itself:
+#   - No CONFIG_SERVER_HOST/PORT - this service IS the Config Server, not a client of it.
+#   - No git credential env var: clickkart-config-repository is a public GitHub repo (confirmed
+#     via the GitHub API - "private": false), and spring.cloud.config.server.git.uri in this
+#     service's own application.properties has no username/password/token wired to it at all, so
+#     there is genuinely nothing to put in the Secret for git access. If the repo is ever made
+#     private, both spring.cloud.config.server.git.username/password (or a token-based URI) AND
+#     a real Secret entry here would need adding together - neither exists today.
+#   - Depends on Eureka being reachable (it registers with Eureka like every other service), so
+#     it still needs EUREKA_SERVER_HOST/PORT even though it has no Config Server of its own to
+#     depend on.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clickkart-config-server
+  namespace: clickkart-app
+  labels:
+    app: clickkart-config-server
+    tier: infrastructure
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: clickkart-config-server
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: clickkart-config-server
+        tier: infrastructure
+    spec:
+      containers:
+        - name: clickkart-config-server
+          image: REGISTRY_PLACEHOLDER/clickkart-config-server:IMAGE_TAG_PLACEHOLDER
+          ports:
+            - containerPort: 8888
+          envFrom:
+            - configMapRef:
+                name: clickkart-config-server-config
+            - secretRef:
+                name: clickkart-config-server-secrets
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "prod"
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8888
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8888
+            initialDelaySeconds: 40
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickkart-config-server-config
+  namespace: clickkart-app
+data:
+  CONFIG_SERVER_HOSTNAME: "clickkart-config-server.clickkart-app.svc.cluster.local"
+  CONFIG_SERVER_USERNAME: "admin"
+  EUREKA_SERVER_HOST: "clickkart-eureka-server.clickkart-app.svc.cluster.local"
+  EUREKA_SERVER_PORT: "8761"
+  EUREKA_DASHBOARD_USERNAME: "admin"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: clickkart-config-server-secrets
+  namespace: clickkart-app
+type: Opaque
+stringData:
+  CONFIG_SERVER_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"
+  EUREKA_DASHBOARD_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"

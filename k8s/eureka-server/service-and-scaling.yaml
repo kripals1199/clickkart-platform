@@ -1,0 +1,24 @@
+# k8s/eureka-server/service-and-scaling.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickkart-eureka-server
+  namespace: clickkart-app
+spec:
+  type: ClusterIP
+  selector:
+    app: clickkart-eureka-server
+  ports:
+    - port: 8761
+      targetPort: 8761
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: clickkart-eureka-server
+  namespace: clickkart-app
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: clickkart-eureka-server

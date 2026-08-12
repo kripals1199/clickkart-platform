@@ -1,0 +1,55 @@
+# k8s/api-gateway/service-and-scaling.yaml
+#
+# type: LoadBalancer, not ClusterIP - this is the only service in the platform meant to receive
+# traffic from outside the cluster. Every other service's Service stays ClusterIP-only
+# (see each one's own service-and-scaling.yaml) since they're only ever reached through this
+# Gateway or by another internal service.
+#
+# Plain HTTP on port 80 here deliberately - a bare LoadBalancer Service does not terminate TLS by
+# itself. Real TLS termination needs cloud-provider-specific config on top of this (e.g. an ACM
+# certificate ARN annotation for an AWS NLB/ALB, or a TLS-configured Ingress in front of a
+# ClusterIP Service instead) - add that per the actual target cloud, don't assume port 443 alone
+# implies HTTPS is handled.
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickkart-api-gateway
+  namespace: clickkart-app
+spec:
+  type: LoadBalancer
+  selector:
+    app: clickkart-api-gateway
+  ports:
+    - port: 80
+      targetPort: 8080
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: clickkart-api-gateway
+  namespace: clickkart-app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: clickkart-api-gateway
+  minReplicas: 3
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: clickkart-api-gateway
+  namespace: clickkart-app
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: clickkart-api-gateway

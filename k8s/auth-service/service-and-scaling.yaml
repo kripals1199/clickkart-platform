@@ -1,0 +1,55 @@
+# k8s/auth-service/service-and-scaling.yaml
+#
+# ClusterIP only - this Service is reachable from the Gateway and other in-cluster services,
+# never exposed directly to the internet (that's the Tier-1 ALB/Ingress's job, terminating TLS
+# and forwarding to the Gateway, which then reaches this Service internally).
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickkart-auth-service
+  namespace: clickkart-app
+spec:
+  type: ClusterIP
+  selector:
+    app: clickkart-auth-service
+  ports:
+    - port: 8081
+      targetPort: 8081
+---
+# Horizontal Pod Autoscaler - "any service can run N replicas behind the load balancer with
+# zero coordination required" is enforced here, not just claimed: replicas scale purely off
+# CPU, no replica needs to know about or coordinate with any other (stateless by design, see
+# deployment.yaml).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: clickkart-auth-service
+  namespace: clickkart-app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: clickkart-auth-service
+  minReplicas: 3
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+---
+# PodDisruptionBudget - keeps enough replicas up during node drains/cluster upgrades that a
+# rolling node replacement never drops available capacity to zero, which matters at
+# "government/enterprise-grade portal traffic" scale.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: clickkart-auth-service
+  namespace: clickkart-app
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: clickkart-auth-service
