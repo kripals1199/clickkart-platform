@@ -191,6 +191,8 @@ services:
       MAIL_USERNAME: ${MAIL_USERNAME:-}
       MAIL_PASSWORD: ${MAIL_PASSWORD:-}
       MAIL_FROM: ${MAIL_FROM:-}
+      MAIL_SMTP_AUTH: ${MAIL_SMTP_AUTH:-true}
+      MAIL_SMTP_STARTTLS: ${MAIL_SMTP_STARTTLS:-true}
       # SMS delivery. Unset = LoggingSmsSender. Requires a DLT-registered MSG91 template.
       MSG91_AUTH_KEY: ${MSG91_AUTH_KEY:-}
       MSG91_TEMPLATE_ID: ${MSG91_TEMPLATE_ID:-}

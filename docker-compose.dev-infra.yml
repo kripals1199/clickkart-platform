@@ -46,6 +46,25 @@ services:
     networks:
       - clickkart-net
 
+  # Local SMTP catcher. Accepts real SMTP (no auth/TLS) and exposes every captured message at
+  # http://localhost:8025 - lets the genuine SmtpEmailSenderImpl path be exercised without any
+  # provider credentials. Defined here rather than started by hand because .env's MAIL_HOST
+  # points at it: as an ad-hoc container it silently disappeared on the next `compose up`,
+  # leaving notification-service pointing at a host that no longer resolved.
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: clickkart-mailpit
+    ports:
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    networks:
+      - clickkart-net
+
 networks:
   clickkart-net:
     name: clickkart-net
