@@ -183,6 +183,18 @@ services:
       DB_NAME: ${NOTIFICATION_DB_NAME:-clickkart_notification}
       DB_USERNAME: ${NOTIFICATION_DB_USERNAME:-clickkart_notification}
       DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD:?NOTIFICATION_DB_PASSWORD must be set}
+      # Email delivery. Unset = LoggingEmailSender (nothing actually sent, body goes to
+      # logs/dispatch.log). MAIL_PASSWORD must be a Gmail App Password, and MAIL_FROM must
+      # equal MAIL_USERNAME or Gmail drops the message.
+      MAIL_HOST: ${MAIL_HOST:-}
+      MAIL_PORT: ${MAIL_PORT:-587}
+      MAIL_USERNAME: ${MAIL_USERNAME:-}
+      MAIL_PASSWORD: ${MAIL_PASSWORD:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      # SMS delivery. Unset = LoggingSmsSender. Requires a DLT-registered MSG91 template.
+      MSG91_AUTH_KEY: ${MSG91_AUTH_KEY:-}
+      MSG91_TEMPLATE_ID: ${MSG91_TEMPLATE_ID:-}
+      MSG91_SENDER_ID: ${MSG91_SENDER_ID:-}
     depends_on:
       config-server:
         condition: service_healthy
