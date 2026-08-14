@@ -1,10 +1,24 @@
 -- scripts/provision-user-service-db.sql
 --
 -- Provisions the Tier-3 database and least-privilege role for clickkart-user-service.
--- Run once per environment, as a superuser, passing the generated password in as a variable:
+-- Run once per environment, as a superuser, passing the generated password in as a variable.
 --
---   psql -U postgres -h localhost -v user_db_password="$USER_DB_PASSWORD" \
+-- Git Bash / any POSIX shell:
+--
+--   psql -U postgres -h localhost \
+--        -v user_db_password="$(grep '^USER_DB_PASSWORD=' .env | cut -d= -f2-)" \
 --        -f scripts/provision-user-service-db.sql
+--
+-- PowerShell - the POSIX form silently passes a literal string instead of the password, which
+-- creates the role with the wrong credential and then fails authentication later in a way that
+-- looks like the role does not exist:
+--
+--   $pw = (Select-String '^USER_DB_PASSWORD=' .env).Line -replace '^USER_DB_PASSWORD=',''
+--   psql -U postgres -h localhost -v user_db_password="$pw" -f scripts/provision-user-service-db.sql
+--
+-- Either way, verify afterwards - a silent mismatch is the failure mode to watch for:
+--
+--   psql -U clickkart_user_app -h localhost -d clickkart_user -c "select current_user"
 --
 -- The password is a psql variable rather than a literal on purpose: this file is committed to a
 -- public repository, so it must never contain a working credential. The real value lives only in
