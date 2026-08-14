@@ -54,6 +54,7 @@ deliberately. `docker-compose.dev-infra.yml` is the only place local stand-ins m
 | [clickkart-notification-service](https://github.com/kripals1199/clickkart-notification-service) | 8082 | Password-reset / OTP dispatch (simulated) |
 | [clickkart-audit-log-service](https://github.com/kripals1199/clickkart-audit-log-service) | 8083 | Tamper-evident hash-chained audit trail |
 | [clickkart-captcha-service](https://github.com/kripals1199/clickkart-captcha-service) | 8084 | Self-hosted image CAPTCHA (no third-party provider) |
+| [clickkart-user-service](https://github.com/kripals1199/clickkart-user-service) | 8085 | Customer profile and shipping address book |
 
 ---
 
@@ -97,6 +98,14 @@ cannot reach another service's data. Full SQL is in
 | `clickkart_auth` | `clickkart_auth_app` |
 | `clickkart_notification` | `clickkart_notification_app` |
 | `clickkart_audit_log` | `clickkart_audit_log_app` |
+| `clickkart_user` | `clickkart_user_app` |
+
+`clickkart_user` has a ready-to-run script — the password comes in as a psql variable so no
+credential is ever committed:
+
+```bash
+psql -U postgres -h localhost -v user_db_password="$USER_DB_PASSWORD" -f scripts/provision-user-service-db.sql
+```
 
 ### 2. Create your `.env`
 
@@ -113,8 +122,9 @@ committed.
 docker compose -f docker-compose.dev-infra.yml -f docker-compose.app-tier.yml up -d
 ```
 
-Brings up 9 containers: 7 services plus two Redis instances. Postgres is **not** containerized —
-it's your host install, so data survives `docker compose down` without a Docker volume.
+Brings up 11 containers: 8 services, two Redis instances, and Mailpit as the local SMTP catcher.
+Postgres is **not** containerized — it's your host install, so data survives `docker compose down`
+without a Docker volume.
 
 ### 4. Verify
 

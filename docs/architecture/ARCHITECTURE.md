@@ -3,8 +3,12 @@
 Status: living document. Reflects the locked architecture and the strict build order
 (Eureka -> Config Server -> Gateway -> Auth Service -> 10 more business services, one at a
 time, each gated by an explicit "confirmed deployable" from the project owner before the next
-starts). As of this document, 4 of 14 services are built and deployed: Eureka Discovery
-Server, Config Server, API Gateway, Auth Service.
+starts). As of this document, 8 services are built: Eureka Discovery Server, Config Server, API
+Gateway, Auth Service, Notification Service, Audit Log Service, Captcha Service and User Service.
+
+Captcha Service was not part of the original 14 - it was added when CAPTCHA coverage of the
+public endpoints was implemented - so what remains is 6 of the originally planned services
+(Product, Category, Inventory, Cart, Order, Payment) plus Admin.
 
 ## Why this document exists
 
@@ -103,22 +107,39 @@ Tier 2 (below)
 | 2 | Config Server | Git-backed (`clickkart-config-repository`) externalized config, 4 profiles (dev/test/qa/prod) per service | Built |
 | 3 | API Gateway | Routing, local JWT pre-validation, Redis rate limiting, correlation-ID forwarding | Built |
 | 4 | Auth Service | Registration, login (email/mobile/publicId) and OTP login (SMS/email), JWT access+refresh issuance, RBAC role source of truth, logout/token revocation, account lockout, email/mobile verification, admin account listing/lock/unlock/soft-delete, tamper-evident (hash-chained) audit trail | Built |
-| 5 | User Service | Customer/seller profile data beyond auth (addresses, preferences) | Not started |
+| 5 | User Service | Customer profile and shipping address book (identity/credentials stay in Auth Service; joined only by `userPublicId`) | Built |
 | 6 | Product Service | Product catalog CRUD, search | Not started |
 | 7 | Category Service | Category taxonomy | Not started |
 | 8 | Inventory Service | Stock levels, optimistic-locked (`@Version`) stock decrement | Not started |
 | 9 | Cart Service | Per-user cart state | Not started |
 | 10 | Order Service | Order lifecycle, orchestrates Cart/Inventory/Payment | Not started |
 | 11 | Payment Service | Payment processing/status | Not started |
-| 12 | Notification Service | Email/SMS dispatch | Not started |
-| 13 | Audit Log Service | Central audit trail - Auth Service already calls this via OpenFeign + Resilience4j, and treats it as a **required** dependency (register/login/etc. fail with 503 if it's unreachable, not degrade silently) | Not started |
+| 12 | Notification Service | Email/SMS dispatch - real SMTP and MSG91 senders, falling back to logging senders when no credentials are configured | Built |
+| 13 | Audit Log Service | Central audit trail - Auth Service calls this via OpenFeign + Resilience4j and treats it as a **required** dependency (register/login/etc. fail with 503 if it's unreachable, rather than degrading silently). User Service treats it the same way | Built |
 | 14 | Admin Service | Administrative operations across the platform | Not started |
+| — | Captcha Service | Self-hosted image CAPTCHA protecting the public endpoints. Not in the original 14; added when bot-protection was implemented | Built |
 
 Every service:
 - Is its own Spring Boot 4.x app, own Maven module/repo, own Dockerfile, own database/schema.
 - Validates JWTs and enforces RBAC itself via Spring Security - the Gateway's pre-check is a
   cheap first filter, not the authorization boundary. A service reachable directly (bypassing
   the Gateway, e.g. in a pentest) must reject an invalid/expired/revoked token on its own.
+
+  > **This rule contradicts the Gateway's own documentation, and the rule wins.**
+  > `JwtAuthenticationGlobalFilter`'s Javadoc states that because it forwards `X-User-Id`,
+  > `X-User-Roles` and `X-Correlation-Id` after validating a token, "downstream services never
+  > need to re-validate the token themselves". A service that took that literally would be
+  > deriving caller identity from a client-supplied header: anything able to open a socket to it
+  > - another pod, a misconfigured ingress, a port-forward, anyone on the cluster network - could
+  > send `X-User-Id: <someone-else>` with no token at all and act as that user. ClusterIP is a
+  > routing decision, not a security control.
+  >
+  > User Service (#5) is the first service where this is directly exploitable rather than
+  > theoretical, since it is both customer-facing and holds personal data. It therefore ignores
+  > those headers entirely and re-derives identity from the signature-verified token, with a test
+  > (`JwtAuthenticationFilterTest`) pinning the behaviour. **Every subsequent service must do the
+  > same.** The Gateway's headers remain useful for tracing and for its own per-user rate-limit
+  > key resolver - they are simply not evidence of identity.
 - Is stateless: no local file storage, no in-memory HTTP session, nothing written to the
   container's filesystem that isn't disposable log output. Anything that must survive a
   restart lives in Tier 3.
