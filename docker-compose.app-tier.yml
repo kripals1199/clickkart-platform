@@ -282,9 +282,58 @@ services:
     networks:
       - clickkart-net
 
-  # Services 5-11 (User, Product, Category, Inventory, Cart, Order, Payment) and Admin (14) join
-  # this file as their own `docker build` entries, following the exact pattern above, as each is
-  # built per the build order - not stubbed out here ahead of having real code to build.
+  user-service:
+    build:
+      context: ./clickkart-user-service
+      dockerfile: Dockerfile
+    image: clickkart/user-service:1.0.0
+    container_name: clickkart-user-service
+    ports:
+      - "${USER_SERVICE_PORT:-8085}:8085"
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      SERVER_PORT: 8085
+      CONFIG_SERVER_HOST: config-server
+      CONFIG_SERVER_PORT: 8888
+      CONFIG_SERVER_USERNAME: ${CONFIG_SERVER_USERNAME:-admin}
+      CONFIG_SERVER_PASSWORD: ${CONFIG_SERVER_PASSWORD:?CONFIG_SERVER_PASSWORD must be set}
+      USER_SERVICE_HOSTNAME: ${USER_SERVICE_HOSTNAME:-user-service}
+      EUREKA_SERVER_HOST: eureka-server
+      EUREKA_DASHBOARD_USERNAME: ${EUREKA_DASHBOARD_USERNAME:-admin}
+      EUREKA_DASHBOARD_PASSWORD: ${EUREKA_DASHBOARD_PASSWORD:?EUREKA_DASHBOARD_PASSWORD must be set}
+      # Same secret as auth-service and api-gateway: this service verifies tokens auth-service
+      # signed, so a different value here rejects every legitimate request.
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set - must match auth-service's JWT_SECRET exactly}
+      # Tier-3 database endpoint - no container defined in this file, see header comment.
+      DB_HOST: ${USER_DB_HOST:?USER_DB_HOST must point to the Postgres endpoint for user-service (managed instance, or docker-compose.dev-infra.yml for local dev)}
+      DB_PORT: ${USER_DB_PORT:-5432}
+      DB_NAME: ${USER_DB_NAME:-clickkart_user}
+      DB_USERNAME: ${USER_DB_USERNAME:-clickkart_user_app}
+      DB_PASSWORD: ${USER_DB_PASSWORD:?USER_DB_PASSWORD must be set}
+      # Tier-3-adjacent cache endpoint - deliberately the SAME instance auth-service uses, because
+      # this service reads the revoked-jti keyspace auth-service writes. Pointing it elsewhere
+      # would silently stop logout from taking effect here.
+      REVOCATION_REDIS_HOST: ${GATEWAY_REDIS_HOST:-gateway-redis}
+      REVOCATION_REDIS_PORT: ${GATEWAY_REDIS_PORT:-6379}
+      REVOCATION_REDIS_PASSWORD: ${GATEWAY_REDIS_PASSWORD:-}
+      # Empty/unset (default) is safe - trusts nothing but the immediate socket address. Set to
+      # the real proxy's CIDR (e.g. the Gateway's) to honor X-Forwarded-For from it specifically.
+      USER_TRUSTED_PROXY_CIDRS: ${USER_TRUSTED_PROXY_CIDRS:-}
+    depends_on:
+      config-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8085/actuator/health/readiness"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks:
+      - clickkart-net
+
+  # Services 6-11 (Product, Category, Inventory, Cart, Order, Payment) and Admin (14) join this
+  # file as their own `docker build` entries, following the exact pattern above, as each is built
+  # per the build order - not stubbed out here ahead of having real code to build.
 
 # Declared the same way as docker-compose.dev-infra.yml (driver: bridge), not external: true -
 # Compose treats an identical network declaration across merged files as idempotent, so this

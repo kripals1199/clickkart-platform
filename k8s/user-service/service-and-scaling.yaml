@@ -1,0 +1,57 @@
+# k8s/user-service/service-and-scaling.yaml
+#
+# ClusterIP only - reachable from the Gateway and other in-cluster services, never exposed
+# directly to the internet. That is the Tier-1 ALB/Ingress's job: terminate TLS, forward to the
+# Gateway, which then reaches this Service internally.
+#
+# Worth being explicit about, because this service is the first one whose endpoints are both
+# customer-facing and personal-data-bearing: ClusterIP is a routing decision, not a security
+# control. Anything already inside the cluster can reach this Service directly, which is exactly
+# why the service validates the JWT itself instead of trusting the Gateway's X-User-Id header.
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickkart-user-service
+  namespace: clickkart-app
+spec:
+  type: ClusterIP
+  selector:
+    app: clickkart-user-service
+  ports:
+    - port: 8085
+      targetPort: 8085
+---
+# Horizontal Pod Autoscaler - replicas scale purely off CPU, with no replica needing to know
+# about or coordinate with any other (stateless by design, see deployment.yaml).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: clickkart-user-service
+  namespace: clickkart-app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: clickkart-user-service
+  minReplicas: 3
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+---
+# PodDisruptionBudget - keeps enough replicas up during node drains and cluster upgrades that a
+# rolling node replacement never drops available capacity to zero.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: clickkart-user-service
+  namespace: clickkart-app
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: clickkart-user-service
