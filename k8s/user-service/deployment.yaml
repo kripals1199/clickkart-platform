@@ -118,3 +118,8 @@ stringData:
   # a different Redis would silently stop logout from taking effect on this service.
   REVOCATION_REDIS_HOST: "REPLACED_BY_SECRETS_MANAGER" # managed cache endpoint
   REVOCATION_REDIS_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"
+  # Guards the /internal/** service-to-service surface. Must be distinct from JWT_SECRET - that
+  # key signs tokens and is held by auth, gateway and this service, whereas this one authenticates
+  # callers. Sharing one value would let anything able to validate a token also read any user's
+  # address. Every calling service (Order, Cart, Product) needs the same value injected.
+  INTERNAL_API_KEY: "REPLACED_BY_SECRETS_MANAGER"

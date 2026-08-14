@@ -319,6 +319,10 @@ services:
       # Empty/unset (default) is safe - trusts nothing but the immediate socket address. Set to
       # the real proxy's CIDR (e.g. the Gateway's) to honor X-Forwarded-For from it specifically.
       USER_TRUSTED_PROXY_CIDRS: ${USER_TRUSTED_PROXY_CIDRS:-}
+      # Shared secret for the /internal/** surface. Required with no default: an unset key
+      # makes the filter refuse every internal request, which is the safe failure but a
+      # confusing one to debug at runtime rather than at startup.
+      INTERNAL_API_KEY: ${INTERNAL_API_KEY:?INTERNAL_API_KEY must be set - guards user-service /internal/** service-to-service endpoints}
     depends_on:
       config-server:
         condition: service_healthy
