@@ -3,13 +3,13 @@
 Status: living document. Reflects the locked architecture and the strict build order
 (Eureka -> Config Server -> Gateway -> Auth Service -> 10 more business services, one at a
 time, each gated by an explicit "confirmed deployable" from the project owner before the next
-starts). As of this document, 9 services are built: Eureka Discovery Server, Config Server, API
-Gateway, Auth Service, Notification Service, Audit Log Service, Captcha Service, User Service and
-Category Service.
+starts). As of this document, 10 services are built: Eureka Discovery Server, Config Server, API
+Gateway, Auth Service, Notification Service, Audit Log Service, Captcha Service, User Service,
+Category Service and Product Service.
 
 Captcha Service was not part of the original 14 - it was added when CAPTCHA coverage of the
 public endpoints was implemented - so what remains is 6 of the originally planned services
-(Product, Inventory, Cart, Order, Payment) plus Admin.
+(Inventory, Cart, Order, Payment) plus Admin.
 
 ## Why this document exists
 
@@ -109,7 +109,7 @@ Tier 2 (below)
 | 3 | API Gateway | Routing, local JWT pre-validation, Redis rate limiting, correlation-ID forwarding | Built |
 | 4 | Auth Service | Registration, login (email/mobile/publicId) and OTP login (SMS/email), JWT access+refresh issuance, RBAC role source of truth, logout/token revocation, account lockout, email/mobile verification, admin account listing/lock/unlock/soft-delete, tamper-evident (hash-chained) audit trail | Built |
 | 5 | User Service | Customer profile and shipping address book (identity/credentials stay in Auth Service; joined only by `userPublicId`) | Built |
-| 6 | Product Service | Product catalog CRUD, search | Not started |
+| 6 | Product Service | Seller listings with variants, moderation workflow (DRAFT-PENDING_REVIEW-ACTIVE), public catalog search, and a purchasable-SKU API for Cart/Order | Built (after #7: a listing cannot publish without Category Service confirming its category) |
 | 7 | Category Service | Catalog taxonomy - materialized-path tree, public browsing, ADMIN management, leaf-only listing checks for Product Service | Built (ahead of #6: Product must validate categories before it can accept a listing) |
 | 8 | Inventory Service | Stock levels, optimistic-locked (`@Version`) stock decrement | Not started |
 | 9 | Cart Service | Per-user cart state | Not started |

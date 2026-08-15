@@ -1,0 +1,57 @@
+# k8s/product-service/service-and-scaling.yaml
+#
+# ClusterIP only - reachable from the Gateway and other in-cluster services, never exposed
+# directly to the internet. That is the Tier-1 ALB/Ingress's job: terminate TLS, forward to the
+# Gateway, which then reaches this Service internally.
+#
+# The catalog reads are anonymous, which does NOT make this Service safe to expose: the same port
+# also carries the seller dashboard and the moderation queue. ClusterIP is a routing decision, not
+# a security control - anything already inside the cluster reaches this Service directly, so the
+# service validates tokens itself and permits anonymous access to GET on the catalog paths only.
+apiVersion: v1
+kind: Service
+metadata:
+  name: clickkart-product-service
+  namespace: clickkart-app
+spec:
+  type: ClusterIP
+  selector:
+    app: clickkart-product-service
+  ports:
+    - port: 8087
+      targetPort: 8087
+---
+# Horizontal Pod Autoscaler - replicas scale purely off CPU, with no replica needing to know
+# about or coordinate with any other (stateless by design, see deployment.yaml).
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: clickkart-product-service
+  namespace: clickkart-app
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: clickkart-product-service
+  minReplicas: 3
+  maxReplicas: 15
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+---
+# PodDisruptionBudget - keeps enough replicas up during node drains and cluster upgrades that a
+# rolling node replacement never drops available capacity to zero.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: clickkart-product-service
+  namespace: clickkart-app
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: clickkart-product-service

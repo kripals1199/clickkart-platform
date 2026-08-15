@@ -56,6 +56,7 @@ deliberately. `docker-compose.dev-infra.yml` is the only place local stand-ins m
 | [clickkart-captcha-service](https://github.com/kripals1199/clickkart-captcha-service) | 8084 | Self-hosted image CAPTCHA (no third-party provider) |
 | [clickkart-user-service](https://github.com/kripals1199/clickkart-user-service) | 8085 | Customer profile and shipping address book |
 | [clickkart-category-service](https://github.com/kripals1199/clickkart-category-service) | 8086 | Catalog taxonomy (public browsing, ADMIN management) |
+| [clickkart-product-service](https://github.com/kripals1199/clickkart-product-service) | 8087 | Seller listings, variants, moderation workflow |
 
 ---
 
@@ -101,6 +102,7 @@ cannot reach another service's data. Full SQL is in
 | `clickkart_audit_log` | `clickkart_audit_log_app` |
 | `clickkart_user` | `clickkart_user_app` |
 | `clickkart_category` | `clickkart_category_app` |
+| `clickkart_product` | `clickkart_product_app` |
 
 `clickkart_user` has a ready-to-run script — the password comes in as a psql variable so no
 credential is ever committed:
@@ -124,7 +126,7 @@ committed.
 docker compose -f docker-compose.dev-infra.yml -f docker-compose.app-tier.yml up -d
 ```
 
-Brings up 12 containers: 9 services, two Redis instances, and Mailpit as the local SMTP catcher.
+Brings up 13 containers: 10 services, two Redis instances, and Mailpit as the local SMTP catcher.
 Postgres is **not** containerized — it's your host install, so data survives `docker compose down`
 without a Docker volume.
 
@@ -155,11 +157,11 @@ without a Docker volume.
 
 ## Project status
 
-**Built and verified:** the nine services above, running end-to-end locally with service
+**Built and verified:** the ten services above, running end-to-end locally with service
 discovery, edge auth, database isolation, and full endpoint coverage.
 
-**Not yet built:** Product, Inventory, Cart, Order, Payment and Admin. The identity foundation and
-the first two domain services (User, Category) are in place; there is nothing to buy yet.
+**Not yet built:** Inventory, Cart, Order, Payment and Admin. Sellers can list and operators can
+approve; nothing can be added to a basket yet.
 
 **Known limitations:**
 - Notification Service has real SMTP and MSG91 senders, but falls back to logging when no
