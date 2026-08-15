@@ -19,6 +19,7 @@ clickkart-captcha-service/
 clickkart-user-service/
 clickkart-category-service/
 clickkart-product-service/
+clickkart-inventory-service/
 clickkart-config-repository/
 
 # --- Build / runtime artifacts ---
