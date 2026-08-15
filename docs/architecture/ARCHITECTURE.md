@@ -3,13 +3,13 @@
 Status: living document. Reflects the locked architecture and the strict build order
 (Eureka -> Config Server -> Gateway -> Auth Service -> 10 more business services, one at a
 time, each gated by an explicit "confirmed deployable" from the project owner before the next
-starts). As of this document, 12 services are built: Eureka Discovery Server, Config Server, API
+starts). As of this document, 13 services are built: Eureka Discovery Server, Config Server, API
 Gateway, Auth Service, Notification Service, Audit Log Service, Captcha Service, User Service,
-Category Service, Product Service, Inventory Service and Order Service.
+Category Service, Product Service, Inventory Service, Order Service and Payment Service.
 
 Captcha Service was not part of the original 14 - it was added when CAPTCHA coverage of the
-public endpoints was implemented - so what remains is 3 of the originally planned services:
-Cart, Payment and Admin.
+public endpoints was implemented - so what remains is 2 of the originally planned services:
+Cart and Admin.
 
 ## Why this document exists
 
@@ -114,7 +114,7 @@ Tier 2 (below)
 | 8 | Inventory Service | Per-SKU stock and the reservation lifecycle. The oversell guard is a conditional UPDATE (`WHERE available >= qty`) rather than the optimistic-locked read-modify-write originally planned - the check and the decrement become one atomic operation, so no retry loop is needed and no call site can skip it | Built |
 | 9 | Cart Service | Per-user cart state | Not started |
 | 10 | Order Service | Order lifecycle, orchestrating catalog pricing, stock reservation and payment. Checkout **writes the order before it holds any stock** - the reverse order leaves stock held against a reference that names nothing, invisible and reclaimable only when Inventory's TTL lapses. Prices come from Product Service, never the client. Every remote call happens outside a transaction, so a slow downstream service cannot exhaust the connection pool | Built (ahead of #9: see below) |
-| 11 | Payment Service | Payment processing/status | Not started |
+| 11 | Payment Service | Payment capture, refunds, and reporting outcomes back to Order Service. **No real processor is integrated**: the gateway is an interface with a simulator behind it, every simulated row is stamped `simulated=true`, and the application **refuses to start under the `prod` profile** on a fake gateway - deliberately unlike Notification Service, whose silent logging fallback is a documented limitation. Also owns the platform's only unauthenticated route, the processor webhook, authenticated by HMAC signature over the raw body instead of a token | Built |
 | 12 | Notification Service | Email/SMS dispatch - real SMTP and MSG91 senders, falling back to logging senders when no credentials are configured | Built |
 | 13 | Audit Log Service | Central audit trail - Auth Service calls this via OpenFeign + Resilience4j and treats it as a **required** dependency (register/login/etc. fail with 503 if it's unreachable, rather than degrading silently). User Service treats it the same way | Built |
 | 14 | Admin Service | Administrative operations across the platform | Not started |
@@ -128,11 +128,20 @@ Tier 2 (below)
 > quantities and nothing more, which a client can equally supply at checkout today. When Cart Service
 > arrives it changes where that list comes from and touches no pricing, reservation or payment logic.
 >
-> **Payment Service (#11) does not exist, and Order Service's callback for it is written anyway.**
-> An order's whole reason for having a `PENDING_PAYMENT` state is that something eventually reports
-> back; building the state machine with no way to drive it would have left every order stuck at the
-> first step and the design unverifiable. `PUT /internal/v1/orders/{ref}/payment-result` is therefore
-> a contract written ahead of its only caller, exercised directly with the internal key.
+> **Payment Service (#11) is now built and is that callback's real caller.** It was written ahead of
+> its consumer for a reason that held up: an order's whole point in having a `PENDING_PAYMENT` state
+> is that something eventually reports back, and building the state machine with no way to drive it
+> would have left every order stuck at the first step. The contract needed no changes when Payment
+> arrived.
+>
+> **Two rules the platform now has that are worth stating once, because they pull in opposite
+> directions.** Notification Service falls back to logging when it has no credentials, and a dev
+> environment therefore silently does not deliver - an accepted limitation for an email. Payment
+> Service deliberately does the opposite: an unconfigured gateway is fine in dev, test and qa, and
+> **fatal in prod**. The difference is what a silent fallback costs. An undelivered email is a
+> nuisance; a faked capture confirms stock, marks an order paid, and lets a seller ship goods against
+> money that never existed - discovered weeks later when somebody reconciles a bank statement, if at
+> all. Where a fallback can cost money rather than convenience, it fails loudly instead.
 
 Every service:
 - Is its own Spring Boot 4.x app, own Maven module/repo, own Dockerfile, own database/schema.
