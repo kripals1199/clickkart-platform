@@ -335,9 +335,56 @@ services:
     networks:
       - clickkart-net
 
-  # Services 6-11 (Product, Category, Inventory, Cart, Order, Payment) and Admin (14) join this
-  # file as their own `docker build` entries, following the exact pattern above, as each is built
-  # per the build order - not stubbed out here ahead of having real code to build.
+  category-service:
+    build:
+      context: ./clickkart-category-service
+      dockerfile: Dockerfile
+    image: clickkart/category-service:1.0.0
+    container_name: clickkart-category-service
+    ports:
+      - "${CATEGORY_SERVICE_PORT:-8086}:8086"
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      SERVER_PORT: 8086
+      CONFIG_SERVER_HOST: config-server
+      CONFIG_SERVER_PORT: 8888
+      CONFIG_SERVER_USERNAME: ${CONFIG_SERVER_USERNAME:-admin}
+      CONFIG_SERVER_PASSWORD: ${CONFIG_SERVER_PASSWORD:?CONFIG_SERVER_PASSWORD must be set}
+      CATEGORY_SERVICE_HOSTNAME: ${CATEGORY_SERVICE_HOSTNAME:-category-service}
+      EUREKA_SERVER_HOST: eureka-server
+      EUREKA_DASHBOARD_USERNAME: ${EUREKA_DASHBOARD_USERNAME:-admin}
+      EUREKA_DASHBOARD_PASSWORD: ${EUREKA_DASHBOARD_PASSWORD:?EUREKA_DASHBOARD_PASSWORD must be set}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set - must match auth-service's JWT_SECRET exactly}
+      # Tier-3 database endpoint - no container defined in this file, see header comment.
+      DB_HOST: ${CATEGORY_DB_HOST:?CATEGORY_DB_HOST must point to the Postgres endpoint for category-service (managed instance, or docker-compose.dev-infra.yml for local dev)}
+      DB_PORT: ${CATEGORY_DB_PORT:-5432}
+      DB_NAME: ${CATEGORY_DB_NAME:-clickkart_category}
+      DB_USERNAME: ${CATEGORY_DB_USERNAME:-clickkart_category_app}
+      DB_PASSWORD: ${CATEGORY_DB_PASSWORD:?CATEGORY_DB_PASSWORD must be set}
+      # Same instance auth-service writes revoked jtis to, so a logged-out ADMIN token stops
+      # working here immediately rather than at its natural expiry.
+      REVOCATION_REDIS_HOST: ${GATEWAY_REDIS_HOST:-gateway-redis}
+      REVOCATION_REDIS_PORT: ${GATEWAY_REDIS_PORT:-6379}
+      REVOCATION_REDIS_PASSWORD: ${GATEWAY_REDIS_PASSWORD:-}
+      # Distinct from user-service's key on purpose: compromising one service must not hand over
+      # another's service-to-service credential. Product Service will hold both.
+      INTERNAL_API_KEY: ${CATEGORY_INTERNAL_API_KEY:?CATEGORY_INTERNAL_API_KEY must be set - guards category-service /internal/** endpoints}
+      CATEGORY_TRUSTED_PROXY_CIDRS: ${CATEGORY_TRUSTED_PROXY_CIDRS:-}
+    depends_on:
+      config-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8086/actuator/health/readiness"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks:
+      - clickkart-net
+
+  # Services 6, 8-11 (Product, Inventory, Cart, Order, Payment) and Admin (14) join this file as
+  # their own `docker build` entries, following the exact pattern above, as each is built per the
+  # build order - not stubbed out here ahead of having real code to build.
 
 # Declared the same way as docker-compose.dev-infra.yml (driver: bridge), not external: true -
 # Compose treats an identical network declaration across merged files as idempotent, so this

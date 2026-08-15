@@ -1,0 +1,127 @@
+# k8s/category-service/deployment.yaml
+#
+# Follows the reference pattern in k8s/auth-service/deployment.yaml exactly - image, name, port
+# and env differ, nothing else. No volumeMounts and no PersistentVolumeClaim: the pod is
+# disposable and owns no state, so any replica can be killed and rescheduled with no data loss.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: clickkart-category-service
+  namespace: clickkart-app
+  labels:
+    app: clickkart-category-service
+    tier: application
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: clickkart-category-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  template:
+    metadata:
+      labels:
+        app: clickkart-category-service
+        tier: application
+    spec:
+      containers:
+        - name: clickkart-category-service
+          image: REGISTRY_PLACEHOLDER/clickkart-category-service:IMAGE_TAG_PLACEHOLDER
+          ports:
+            - containerPort: 8086
+          envFrom:
+            - configMapRef:
+                name: clickkart-category-service-config
+            - secretRef:
+                name: clickkart-category-service-secrets
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "prod"
+          # The readiness group is readinessState,db,redis - this service can neither authenticate
+          # a request (revocation check) nor serve one (profile data) without both, so losing
+          # either correctly pulls the pod from the Service endpoint pool.
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: 8086
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: 8086
+            initialDelaySeconds: 40
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false # logback writes to ./logs - see the service's Dockerfile
+      # No affinity toward any "database" node pool - this pod reaches Tier 3 purely over the
+      # network and has no business being colocated with anything stateful.
+---
+# ConfigMap: non-secret values only. Real configuration comes from the Config Server; this
+# ConfigMap's job is telling the pod where to find it and supplying the non-secret placeholders
+# that clickkart-category-service.properties declares with no default on the prod branch. Every key
+# below is required - Spring cannot resolve the placeholder without it and the pod fails to start.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickkart-category-service-config
+  namespace: clickkart-app
+data:
+  CONFIG_SERVER_HOST: "clickkart-config-server.clickkart-app.svc.cluster.local"
+  CONFIG_SERVER_PORT: "8888"
+  EUREKA_SERVER_HOST: "clickkart-eureka-server.clickkart-app.svc.cluster.local"
+  CATEGORY_SERVICE_HOSTNAME: "clickkart-category-service.clickkart-app.svc.cluster.local"
+  EUREKA_DASHBOARD_USERNAME: "admin"
+  # The service's own least-privilege database role - never the postgres superuser, and never
+  # another service's role.
+  DB_USERNAME: "clickkart_category_app"
+  # Real browser origin(s) of the frontend. Deliberately not "*": category.allowed-origins feeds a
+  # CORS config that runs with credentials enabled.
+  ALLOWED_ORIGINS: "https://REPLACE_WITH_REAL_FRONTEND_ORIGIN"
+  # CIDR of the hop whose X-Forwarded-For may be believed - normally the ingress/ALB subnet.
+  # Left empty, every audited IP is the proxy's rather than the operator's; set wrongly, a client
+  # can forge the IP written into the tamper-evident audit trail.
+  CATEGORY_TRUSTED_PROXY_CIDRS: "REPLACE_WITH_INGRESS_CIDR"
+  # Root counts as 0. Bounds breadcrumb rendering and keeps the materialized path inside its column.
+  CATEGORY_MAX_DEPTH: "5"
+---
+# Secret: shape only. Populated in a real cluster by the secrets manager integration (External
+# Secrets Operator syncing from AWS Secrets Manager / Vault), never `kubectl apply`'d with real
+# values committed to this file.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: clickkart-category-service-secrets
+  namespace: clickkart-app
+type: Opaque
+stringData:
+  CONFIG_SERVER_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"
+  EUREKA_DASHBOARD_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"
+  # Must be byte-identical to auth-service's and api-gateway's JWT_SECRET - this service verifies
+  # tokens auth-service signed. A different value here rejects every legitimate request.
+  JWT_SECRET: "REPLACED_BY_SECRETS_MANAGER"
+  DB_HOST: "REPLACED_BY_SECRETS_MANAGER" # managed Postgres endpoint - never a k8s Service pointing at a Pod
+  DB_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"
+  # Must be the SAME managed cache instance auth-service writes revoked jtis to. Pointing this at
+  # a different Redis would silently stop logout from taking effect on this service.
+  REVOCATION_REDIS_HOST: "REPLACED_BY_SECRETS_MANAGER" # managed cache endpoint
+  REVOCATION_REDIS_PASSWORD: "REPLACED_BY_SECRETS_MANAGER"
+  # Guards the /internal/** service-to-service surface, which exposes INACTIVE categories that the
+  # public API deliberately hides. Must differ from JWT_SECRET, and also from user-service's own
+  # internal key: compromising one service must not hand over another's credential. Product
+  # Service holds this one and user-service's, separately.
+  INTERNAL_API_KEY: "REPLACED_BY_SECRETS_MANAGER"

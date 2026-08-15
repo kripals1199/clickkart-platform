@@ -3,12 +3,13 @@
 Status: living document. Reflects the locked architecture and the strict build order
 (Eureka -> Config Server -> Gateway -> Auth Service -> 10 more business services, one at a
 time, each gated by an explicit "confirmed deployable" from the project owner before the next
-starts). As of this document, 8 services are built: Eureka Discovery Server, Config Server, API
-Gateway, Auth Service, Notification Service, Audit Log Service, Captcha Service and User Service.
+starts). As of this document, 9 services are built: Eureka Discovery Server, Config Server, API
+Gateway, Auth Service, Notification Service, Audit Log Service, Captcha Service, User Service and
+Category Service.
 
 Captcha Service was not part of the original 14 - it was added when CAPTCHA coverage of the
 public endpoints was implemented - so what remains is 6 of the originally planned services
-(Product, Category, Inventory, Cart, Order, Payment) plus Admin.
+(Product, Inventory, Cart, Order, Payment) plus Admin.
 
 ## Why this document exists
 
@@ -109,7 +110,7 @@ Tier 2 (below)
 | 4 | Auth Service | Registration, login (email/mobile/publicId) and OTP login (SMS/email), JWT access+refresh issuance, RBAC role source of truth, logout/token revocation, account lockout, email/mobile verification, admin account listing/lock/unlock/soft-delete, tamper-evident (hash-chained) audit trail | Built |
 | 5 | User Service | Customer profile and shipping address book (identity/credentials stay in Auth Service; joined only by `userPublicId`) | Built |
 | 6 | Product Service | Product catalog CRUD, search | Not started |
-| 7 | Category Service | Category taxonomy | Not started |
+| 7 | Category Service | Catalog taxonomy - materialized-path tree, public browsing, ADMIN management, leaf-only listing checks for Product Service | Built (ahead of #6: Product must validate categories before it can accept a listing) |
 | 8 | Inventory Service | Stock levels, optimistic-locked (`@Version`) stock decrement | Not started |
 | 9 | Cart Service | Per-user cart state | Not started |
 | 10 | Order Service | Order lifecycle, orchestrates Cart/Inventory/Payment | Not started |
@@ -140,6 +141,24 @@ Every service:
   > (`JwtAuthenticationFilterTest`) pinning the behaviour. **Every subsequent service must do the
   > same.** The Gateway's headers remain useful for tracing and for its own per-user rate-limit
   > key resolver - they are simply not evidence of identity.
+
+  > **Public reads are an exception to "every request carries a token", not to the rule above.**
+  > Category Service (#7) is the first service a customer reaches before signing in, so its catalog
+  > reads are anonymous. Two consequences worth knowing before the next such service:
+  >
+  > - Authorization there is **by HTTP method**, not by path. The Gateway's `public-paths` list is
+  >   matched on path alone and cannot distinguish `GET` from `POST`, so an ADMIN write passes its
+  >   pre-check and is refused by the service. Permitting the path prefix inside the service too
+  >   would have left a single `@PreAuthorize` annotation as the only barrier to an anonymous
+  >   catalog rewrite.
+  > - The JWT filter gives those paths **optional** authentication rather than skipping them. A
+  >   signed-in customer may present a token while browsing, and it must still be validated -
+  >   skipping the path outright would let a revoked token pass as "anonymous" instead of being
+  >   rejected.
+  >
+  > Correlation IDs are also minted rather than required on anonymous paths, following Captcha
+  > Service: there is no token for the Gateway to have taken one from. Rule 13 still holds for
+  > authenticated traffic, where the token's claim wins.
 - Is stateless: no local file storage, no in-memory HTTP session, nothing written to the
   container's filesystem that isn't disposable log output. Anything that must survive a
   restart lives in Tier 3.
