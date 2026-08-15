@@ -3,13 +3,13 @@
 Status: living document. Reflects the locked architecture and the strict build order
 (Eureka -> Config Server -> Gateway -> Auth Service -> 10 more business services, one at a
 time, each gated by an explicit "confirmed deployable" from the project owner before the next
-starts). As of this document, 11 services are built: Eureka Discovery Server, Config Server, API
+starts). As of this document, 12 services are built: Eureka Discovery Server, Config Server, API
 Gateway, Auth Service, Notification Service, Audit Log Service, Captcha Service, User Service,
-Category Service, Product Service and Inventory Service.
+Category Service, Product Service, Inventory Service and Order Service.
 
 Captcha Service was not part of the original 14 - it was added when CAPTCHA coverage of the
-public endpoints was implemented - so what remains is 6 of the originally planned services
-(Cart, Order, Payment) plus Admin.
+public endpoints was implemented - so what remains is 3 of the originally planned services:
+Cart, Payment and Admin.
 
 ## Why this document exists
 
@@ -113,12 +113,26 @@ Tier 2 (below)
 | 7 | Category Service | Catalog taxonomy - materialized-path tree, public browsing, ADMIN management, leaf-only listing checks for Product Service | Built (ahead of #6: Product must validate categories before it can accept a listing) |
 | 8 | Inventory Service | Per-SKU stock and the reservation lifecycle. The oversell guard is a conditional UPDATE (`WHERE available >= qty`) rather than the optimistic-locked read-modify-write originally planned - the check and the decrement become one atomic operation, so no retry loop is needed and no call site can skip it | Built |
 | 9 | Cart Service | Per-user cart state | Not started |
-| 10 | Order Service | Order lifecycle, orchestrates Cart/Inventory/Payment | Not started |
+| 10 | Order Service | Order lifecycle, orchestrating catalog pricing, stock reservation and payment. Checkout **writes the order before it holds any stock** - the reverse order leaves stock held against a reference that names nothing, invisible and reclaimable only when Inventory's TTL lapses. Prices come from Product Service, never the client. Every remote call happens outside a transaction, so a slow downstream service cannot exhaust the connection pool | Built (ahead of #9: see below) |
 | 11 | Payment Service | Payment processing/status | Not started |
 | 12 | Notification Service | Email/SMS dispatch - real SMTP and MSG91 senders, falling back to logging senders when no credentials are configured | Built |
 | 13 | Audit Log Service | Central audit trail - Auth Service calls this via OpenFeign + Resilience4j and treats it as a **required** dependency (register/login/etc. fail with 503 if it's unreachable, rather than degrading silently). User Service treats it the same way | Built |
 | 14 | Admin Service | Administrative operations across the platform | Not started |
 | — | Captcha Service | Self-hosted image CAPTCHA protecting the public endpoints. Not in the original 14; added when bot-protection was implemented | Built |
+
+> **Order Service (#10) was built before Cart Service (#9), and the gate it skipped turned out not
+> to bind.** The build order puts Cart first because this table describes Order as orchestrating
+> "Cart/Inventory/Payment" - which reads as though Order sources its line items from Cart. It does
+> not, and it must not: the price a customer is charged has to come from the catalog that advertised
+> it, so Order calls Product Service's purchasable-SKU API directly. Cart supplies a list of SKUs and
+> quantities and nothing more, which a client can equally supply at checkout today. When Cart Service
+> arrives it changes where that list comes from and touches no pricing, reservation or payment logic.
+>
+> **Payment Service (#11) does not exist, and Order Service's callback for it is written anyway.**
+> An order's whole reason for having a `PENDING_PAYMENT` state is that something eventually reports
+> back; building the state machine with no way to drive it would have left every order stuck at the
+> first step and the design unverifiable. `PUT /internal/v1/orders/{ref}/payment-result` is therefore
+> a contract written ahead of its only caller, exercised directly with the internal key.
 
 Every service:
 - Is its own Spring Boot 4.x app, own Maven module/repo, own Dockerfile, own database/schema.

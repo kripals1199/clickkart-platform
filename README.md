@@ -58,6 +58,7 @@ deliberately. `docker-compose.dev-infra.yml` is the only place local stand-ins m
 | [clickkart-category-service](https://github.com/kripals1199/clickkart-category-service) | 8086 | Catalog taxonomy (public browsing, ADMIN management) |
 | [clickkart-product-service](https://github.com/kripals1199/clickkart-product-service) | 8087 | Seller listings, variants, moderation workflow |
 | [clickkart-inventory-service](https://github.com/kripals1199/clickkart-inventory-service) | 8088 | Per-SKU stock, reservation lifecycle, oversell guard |
+| [clickkart-order-service](https://github.com/kripals1199/clickkart-order-service) | 8089 | Order lifecycle, checkout orchestration, seller fulfilment |
 
 ---
 
@@ -105,6 +106,7 @@ cannot reach another service's data. Full SQL is in
 | `clickkart_category` | `clickkart_category_app` |
 | `clickkart_product` | `clickkart_product_app` |
 | `clickkart_inventory` | `clickkart_inventory_app` |
+| `clickkart_order` | `clickkart_order_app` |
 
 `clickkart_user` has a ready-to-run script — the password comes in as a psql variable so no
 credential is ever committed:
@@ -128,7 +130,7 @@ committed.
 docker compose -f docker-compose.dev-infra.yml -f docker-compose.app-tier.yml up -d
 ```
 
-Brings up 14 containers: 11 services, two Redis instances, and Mailpit as the local SMTP catcher.
+Brings up 15 containers: 12 services, two Redis instances, and Mailpit as the local SMTP catcher.
 Postgres is **not** containerized — it's your host install, so data survives `docker compose down`
 without a Docker volume.
 
@@ -159,11 +161,13 @@ without a Docker volume.
 
 ## Project status
 
-**Built and verified:** the eleven services above, running end-to-end locally with service
+**Built and verified:** the twelve services above, running end-to-end locally with service
 discovery, edge auth, database isolation, and full endpoint coverage.
 
-**Not yet built:** Cart, Order, Payment and Admin. Sellers can list, operators can approve, and
-stock can be held and released - but nothing assembles a basket or takes money yet.
+**Not yet built:** Cart, Payment and Admin. A customer can now place an order, have its stock held,
+have it "paid for" and have it delivered — but nothing assembles a basket beforehand, and no money
+actually moves. Payment Service does not exist, so its callback into Order Service is a contract
+written ahead of its only caller and exercised directly with the internal key.
 
 **Known limitations:**
 - Notification Service has real SMTP and MSG91 senders, but falls back to logging when no
@@ -173,3 +177,7 @@ stock can be held and released - but nothing assembles a basket or takes money y
   does not exist to ask.
 - `spring.jpa.hibernate.ddl-auto=update` is used in all environments; there is no migration tool.
 - No TLS — all traffic is plain HTTP.
+- Order Service can flag that a refund is owed, but nothing performs one — there is no service that
+  moves money. The `refunds-required` queue is the handoff to a human.
+- An order cannot be returned once delivered. A return is a separate flow with its own money
+  movement, and it waits on Payment Service.

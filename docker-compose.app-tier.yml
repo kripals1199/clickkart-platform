@@ -476,7 +476,59 @@ services:
     networks:
       - clickkart-net
 
-  # Services 9-11 (Cart, Order, Payment) and Admin (14) join this file as their own `docker build`
+  order-service:
+    build:
+      context: ./clickkart-order-service
+      dockerfile: Dockerfile
+    image: clickkart/order-service:1.0.0
+    container_name: clickkart-order-service
+    ports:
+      - "${ORDER_SERVICE_PORT:-8089}:8089"
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      SERVER_PORT: 8089
+      CONFIG_SERVER_HOST: config-server
+      CONFIG_SERVER_PORT: 8888
+      CONFIG_SERVER_USERNAME: ${CONFIG_SERVER_USERNAME:-admin}
+      CONFIG_SERVER_PASSWORD: ${CONFIG_SERVER_PASSWORD:?CONFIG_SERVER_PASSWORD must be set}
+      ORDER_SERVICE_HOSTNAME: ${ORDER_SERVICE_HOSTNAME:-order-service}
+      EUREKA_SERVER_HOST: eureka-server
+      EUREKA_DASHBOARD_USERNAME: ${EUREKA_DASHBOARD_USERNAME:-admin}
+      EUREKA_DASHBOARD_PASSWORD: ${EUREKA_DASHBOARD_PASSWORD:?EUREKA_DASHBOARD_PASSWORD must be set}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set - must match auth-service's JWT_SECRET exactly}
+      # Tier-3 database endpoint - no container defined in this file, see header comment.
+      DB_HOST: ${ORDER_DB_HOST:?ORDER_DB_HOST must point to the Postgres endpoint for order-service (managed instance, or docker-compose.dev-infra.yml for local dev)}
+      DB_PORT: ${ORDER_DB_PORT:-5432}
+      DB_NAME: ${ORDER_DB_NAME:-clickkart_order}
+      DB_USERNAME: ${ORDER_DB_USERNAME:-clickkart_order_app}
+      DB_PASSWORD: ${ORDER_DB_PASSWORD:?ORDER_DB_PASSWORD must be set}
+      REVOCATION_REDIS_HOST: ${GATEWAY_REDIS_HOST:-gateway-redis}
+      REVOCATION_REDIS_PORT: ${GATEWAY_REDIS_PORT:-6379}
+      REVOCATION_REDIS_PASSWORD: ${GATEWAY_REDIS_PASSWORD:-}
+      # Guards this service's own /internal/** - the seam Payment Service reports outcomes on.
+      INTERNAL_API_KEY: ${ORDER_INTERNAL_API_KEY:?ORDER_INTERNAL_API_KEY must be set - guards the payment callback}
+      # Three separate downstream keys, not one. They are not equally dangerous: the inventory key
+      # can move a shop's stock, while the other two only read - so compromising something that
+      # merely needed to look up a price must not also yield the power to reserve away that stock.
+      PRODUCT_SERVICE_API_KEY: ${PRODUCT_INTERNAL_API_KEY:?PRODUCT_INTERNAL_API_KEY must be set - order-service prices SKUs against product-service /internal/**}
+      INVENTORY_SERVICE_API_KEY: ${INVENTORY_INTERNAL_API_KEY:?INVENTORY_INTERNAL_API_KEY must be set - order-service drives the reservation lifecycle}
+      # user-service's key is the unprefixed one - it was the platform's first internal surface and
+      # predates the per-service naming. product-service references it the same way, above.
+      USER_SERVICE_API_KEY: ${INTERNAL_API_KEY:?INTERNAL_API_KEY must be set - order-service snapshots the delivery address from user-service /internal/**}
+      ORDER_TRUSTED_PROXY_CIDRS: ${ORDER_TRUSTED_PROXY_CIDRS:-}
+    depends_on:
+      config-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8089/actuator/health/readiness"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks:
+      - clickkart-net
+
+  # Services 9, 11 (Cart, Payment) and Admin (14) join this file as their own `docker build`
   # entries, following the exact pattern above, as each is built per the build order - not stubbed
   # out here ahead of having real code to build.
 
