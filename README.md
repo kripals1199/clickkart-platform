@@ -180,6 +180,8 @@ simulated, stamped `simulated=true`, and Payment Service refuses to start in `pr
 - `spring.jpa.hibernate.ddl-auto=update` is used in all environments; there is no migration tool.
 - No TLS — all traffic is plain HTTP.
 - No payment processor is integrated. Payment Service has the seam (`PaymentGateway`) and a loud
-  simulator that refuses to run under `prod`, but no real gateway implementation exists yet.
+  simulator that refuses to run under `prod`, but no real gateway implementation exists yet. The
+  simulator's forced-outcome amounts are exposed as compose environment variables so the decline and
+  pending paths can be summoned on demand rather than waited for — see `SIMULATED_DECLINE_AMOUNT`.
 - An order cannot be returned once delivered. A return is a customer-facing flow with a policy behind
   it; only the operator-driven refund mechanics exist.

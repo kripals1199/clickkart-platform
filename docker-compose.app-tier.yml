@@ -568,6 +568,14 @@ services:
       # 'simulated' MOVES NO MONEY. Every payment is stamped simulated=true, and the service refuses
       # to start with this value under the prod profile.
       PAYMENT_GATEWAY_PROVIDER: ${PAYMENT_GATEWAY_PROVIDER:-simulated}
+      # The simulator's outcome knobs. They exist in the properties file but had no way through to
+      # the container, which made the decline path - the one that has to release the order's stock
+      # and tell the customer - unreachable in dev except by rolling the 10% dice until it landed.
+      # A failure path you cannot summon on demand is a failure path nobody exercises.
+      SIMULATED_FAILURE_PERCENT: ${SIMULATED_FAILURE_PERCENT:-10}
+      SIMULATED_PENDING_PERCENT: ${SIMULATED_PENDING_PERCENT:-10}
+      SIMULATED_DECLINE_AMOUNT: ${SIMULATED_DECLINE_AMOUNT:-13.13}
+      SIMULATED_PENDING_AMOUNT: ${SIMULATED_PENDING_AMOUNT:-17.17}
       PAYMENT_TRUSTED_PROXY_CIDRS: ${PAYMENT_TRUSTED_PROXY_CIDRS:-}
     depends_on:
       config-server:
