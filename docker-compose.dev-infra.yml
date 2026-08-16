@@ -118,6 +118,36 @@ services:
     networks:
       - clickkart-net
 
+  loki:
+    build:
+      context: ./observability
+      dockerfile: Dockerfile.loki
+    image: clickkart/loki:1.0.0
+    container_name: clickkart-loki
+    ports:
+      - "${LOKI_PORT:-3100}:3100"
+    volumes:
+      - loki-data:/loki
+    networks:
+      - clickkart-net
+
+  promtail:
+    build:
+      context: ./observability
+      dockerfile: Dockerfile.promtail
+    image: clickkart/promtail:1.0.0
+    container_name: clickkart-promtail
+    # Read-only, and the only mount in this file that reaches outside the compose network. Promtail
+    # needs the daemon to enumerate containers and stream their logs; it never needs to change
+    # anything, and a writable Docker socket is effectively root on the host.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - promtail-positions:/tmp
+    depends_on:
+      - loki
+    networks:
+      - clickkart-net
+
 networks:
   clickkart-net:
     name: clickkart-net
@@ -126,3 +156,5 @@ networks:
 volumes:
   prometheus-data:
   grafana-data:
+  loki-data:
+  promtail-positions:

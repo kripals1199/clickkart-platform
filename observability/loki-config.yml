@@ -1,0 +1,56 @@
+# observability/loki-config.yml
+#
+# Loki rather than Elasticsearch, and the reason is measurable rather than aesthetic: this Docker VM
+# has 6.2 GB total with ~5.1 GiB already committed to twenty containers. Elasticsearch alone wants
+# around 2 GB of heap before Logstash and Kibana are considered, so an ELK stack would not start
+# here - and a logging stack that OOM-kills the services it is meant to observe is worse than none.
+#
+# Loki indexes only labels and leaves the log text compressed and unindexed, which is why it fits in
+# a couple of hundred megabytes. The trade is real: it is far weaker at arbitrary full-text search
+# than Elasticsearch. It happens to suit this platform, because the field anyone actually searches by
+# is the correlation id, and that is a label.
+#
+# Single-binary, filesystem-backed, no clustering. This is the local-development equivalent of a
+# managed log store, exactly as the Postgres and Redis containers are.
+
+auth_enabled: false
+
+server:
+  http_listen_port: 3100
+  log_level: warn
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+schema_config:
+  configs:
+    - from: 2024-01-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  retention_period: 168h
+  # Containers restart and replay, and a burst of startup logging must not be silently dropped -
+  # the lines lost would be exactly the ones explaining why something restarted.
+  ingestion_rate_mb: 16
+  ingestion_burst_size_mb: 32
+  reject_old_samples: true
+  reject_old_samples_max_age: 168h
+
+compactor:
+  working_directory: /loki/compactor
+  retention_enabled: true
+  delete_request_store: filesystem
