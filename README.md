@@ -60,6 +60,7 @@ deliberately. `docker-compose.dev-infra.yml` is the only place local stand-ins m
 | [clickkart-inventory-service](https://github.com/kripals1199/clickkart-inventory-service) | 8088 | Per-SKU stock, reservation lifecycle, oversell guard |
 | [clickkart-order-service](https://github.com/kripals1199/clickkart-order-service) | 8089 | Order lifecycle, checkout orchestration, seller fulfilment |
 | [clickkart-payment-service](https://github.com/kripals1199/clickkart-payment-service) | 8090 | Payment capture, refunds, outcome reconciliation |
+| [clickkart-cart-service](https://github.com/kripals1199/clickkart-cart-service) | 8091 | Per-user basket, priced live from the catalog |
 
 ---
 
@@ -109,6 +110,7 @@ cannot reach another service's data. Full SQL is in
 | `clickkart_inventory` | `clickkart_inventory_app` |
 | `clickkart_order` | `clickkart_order_app` |
 | `clickkart_payment` | `clickkart_payment_app` |
+| `clickkart_cart` | `clickkart_cart_app` |
 
 `clickkart_user` has a ready-to-run script — the password comes in as a psql variable so no
 credential is ever committed:
@@ -132,7 +134,7 @@ committed.
 docker compose -f docker-compose.dev-infra.yml -f docker-compose.app-tier.yml up -d
 ```
 
-Brings up 16 containers: 13 services, two Redis instances, and Mailpit as the local SMTP catcher.
+Brings up 17 containers: 14 services, two Redis instances, and Mailpit as the local SMTP catcher.
 Postgres is **not** containerized — it's your host install, so data survives `docker compose down`
 without a Docker volume.
 
@@ -163,13 +165,14 @@ without a Docker volume.
 
 ## Project status
 
-**Built and verified:** the thirteen services above, running end-to-end locally with service
+**Built and verified:** the fourteen services above, running end-to-end locally with service
 discovery, edge auth, database isolation, and full endpoint coverage.
 
-**Not yet built:** Cart and Admin. A customer can now place an order, have its stock held, pay for
-it, and have it delivered, with refunds available to an operator — but nothing assembles a basket
-beforehand, and **no money actually moves**: no payment processor is integrated, so every capture is
-simulated, stamped `simulated=true`, and Payment Service refuses to start in `prod` on a fake gateway.
+**Not yet built:** Admin Service alone. The customer journey is now complete end to end — fill a
+basket, check out from it, have stock held, pay, and have a seller ship it, with refunds available to
+an operator. The one thing that does not happen is that **no money actually moves**: no payment
+processor is integrated, so every capture is simulated, stamped `simulated=true`, and Payment Service
+refuses to start in `prod` on a fake gateway.
 
 **Known limitations:**
 - Notification Service has real SMTP and MSG91 senders, but falls back to logging when no
@@ -185,3 +188,5 @@ simulated, stamped `simulated=true`, and Payment Service refuses to start in `pr
   pending paths can be summoned on demand rather than waited for — see `SIMULATED_DECLINE_AMOUNT`.
 - An order cannot be returned once delivered. A return is a customer-facing flow with a policy behind
   it; only the operator-driven refund mechanics exist.
+- No guest carts. A basket requires a signed-in account, so an anonymous browser cannot collect items
+  before registering — that needs a cart token and a merge-on-login flow.

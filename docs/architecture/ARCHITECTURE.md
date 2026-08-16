@@ -3,13 +3,14 @@
 Status: living document. Reflects the locked architecture and the strict build order
 (Eureka -> Config Server -> Gateway -> Auth Service -> 10 more business services, one at a
 time, each gated by an explicit "confirmed deployable" from the project owner before the next
-starts). As of this document, 13 services are built: Eureka Discovery Server, Config Server, API
+starts). As of this document, 14 services are built: Eureka Discovery Server, Config Server, API
 Gateway, Auth Service, Notification Service, Audit Log Service, Captcha Service, User Service,
-Category Service, Product Service, Inventory Service, Order Service and Payment Service.
+Category Service, Product Service, Inventory Service, Order Service, Payment Service and Cart
+Service.
 
 Captcha Service was not part of the original 14 - it was added when CAPTCHA coverage of the
-public endpoints was implemented - so what remains is 2 of the originally planned services:
-Cart and Admin.
+public endpoints was implemented - so what remains is 1 of the originally planned services:
+Admin Service.
 
 ## Why this document exists
 
@@ -112,7 +113,7 @@ Tier 2 (below)
 | 6 | Product Service | Seller listings with variants, moderation workflow (DRAFT-PENDING_REVIEW-ACTIVE), public catalog search, and a purchasable-SKU API for Cart/Order | Built (after #7: a listing cannot publish without Category Service confirming its category) |
 | 7 | Category Service | Catalog taxonomy - materialized-path tree, public browsing, ADMIN management, leaf-only listing checks for Product Service | Built (ahead of #6: Product must validate categories before it can accept a listing) |
 | 8 | Inventory Service | Per-SKU stock and the reservation lifecycle. The oversell guard is a conditional UPDATE (`WHERE available >= qty`) rather than the optimistic-locked read-modify-write originally planned - the check and the decrement become one atomic operation, so no retry loop is needed and no call site can skip it | Built |
-| 9 | Cart Service | Per-user cart state | Not started |
+| 9 | Cart Service | Per-user basket state. Owns quantities and nothing else: names, prices, sellers and availability are read live from Product and Inventory on every render and none is stored - the opposite of Order Service, because an order is a record of an agreement at a point in time while a cart is a list of intentions. The one price it stores is a change detector, not a charging basis | Built (after #10 and #11: see below) |
 | 10 | Order Service | Order lifecycle, orchestrating catalog pricing, stock reservation and payment. Checkout **writes the order before it holds any stock** - the reverse order leaves stock held against a reference that names nothing, invisible and reclaimable only when Inventory's TTL lapses. Prices come from Product Service, never the client. Every remote call happens outside a transaction, so a slow downstream service cannot exhaust the connection pool | Built (ahead of #9: see below) |
 | 11 | Payment Service | Payment capture, refunds, and reporting outcomes back to Order Service. **No real processor is integrated**: the gateway is an interface with a simulator behind it, every simulated row is stamped `simulated=true`, and the application **refuses to start under the `prod` profile** on a fake gateway - deliberately unlike Notification Service, whose silent logging fallback is a documented limitation. Also owns the platform's only unauthenticated route, the processor webhook, authenticated by HMAC signature over the raw body instead of a token | Built |
 | 12 | Notification Service | Email/SMS dispatch - real SMTP and MSG91 senders, falling back to logging senders when no credentials are configured | Built |
@@ -127,6 +128,13 @@ Tier 2 (below)
 > it, so Order calls Product Service's purchasable-SKU API directly. Cart supplies a list of SKUs and
 > quantities and nothing more, which a client can equally supply at checkout today. When Cart Service
 > arrives it changes where that list comes from and touches no pricing, reservation or payment logic.
+>
+> **That prediction held exactly.** Cart Service (#9) is now built, and integrating it added one
+> optional field to `CheckoutRequest` (omit `items` and the list comes from the basket), one Feign
+> client, and a best-effort call to empty the cart afterwards. No pricing, reservation or payment
+> logic changed, and all 81 existing Order Service tests passed untouched. The gate was real but it
+> guarded a coupling that does not exist - which is worth recording, because "Order orchestrates
+> Cart" is exactly the phrasing that would have produced the coupling if taken literally.
 >
 > **Payment Service (#11) is now built and is that callback's real caller.** It was written ahead of
 > its consumer for a reason that held up: an order's whole point in having a `PENDING_PAYMENT` state
