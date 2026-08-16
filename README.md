@@ -144,6 +144,7 @@ without a Docker volume.
 | What | Where |
 |---|---|
 | Aggregated Swagger UI | http://localhost:8080/swagger-ui.html |
+| Postman collection | [`docs/api/`](docs/api/) — 110 requests, import and run "Start here" first |
 | Eureka dashboard | http://localhost:8761 |
 | Gateway health | http://localhost:8080/actuator/health |
 
