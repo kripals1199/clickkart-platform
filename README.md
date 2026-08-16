@@ -135,7 +135,8 @@ committed.
 docker compose -f docker-compose.dev-infra.yml -f docker-compose.app-tier.yml up -d
 ```
 
-Brings up 18 containers: 15 services, two Redis instances, and Mailpit as the local SMTP catcher.
+Brings up 22 containers: 15 services, two Redis instances, Mailpit as the local SMTP catcher, and
+the observability stack (Prometheus, Grafana, Loki, Promtail).
 Postgres is **not** containerized — it's your host install, so data survives `docker compose down`
 without a Docker volume.
 
@@ -147,6 +148,7 @@ without a Docker volume.
 | Postman collection | [`docs/api/`](docs/api/) — 110 requests, import and run "Start here" first |
 | Prometheus | http://localhost:9090 |
 | Grafana | http://localhost:3000 — dashboard provisioned, login from `GRAFANA_ADMIN_PASSWORD` |
+| Logs (Loki) | Query in Grafana, or `{correlationId="<id>"}` against http://localhost:3100 — one id returns every service that touched the request |
 | Eureka dashboard | http://localhost:8761 |
 | Gateway health | http://localhost:8080/actuator/health |
 
