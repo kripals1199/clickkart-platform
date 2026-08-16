@@ -1,0 +1,122 @@
+{
+  "title": "ClickKart — Platform Health",
+  "uid": "clickkart-platform",
+  "tags": ["clickkart"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "description": "Built around the failures this platform has actually had, not around whatever Micrometer happens to expose. Every panel earns its place by corresponding to something that has gone wrong or plausibly will.",
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "label": "Service",
+        "type": "query",
+        "datasource": { "type": "prometheus", "uid": "prometheus" },
+        "query": "label_values(up{job=\"clickkart-services\"}, service)",
+        "includeAll": true,
+        "multi": true,
+        "current": { "text": "All", "value": "$__all" },
+        "refresh": 1
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Services up",
+      "description": "A service that is registered in Eureka but not answering a scrape is still down. This counts what actually responds.",
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(up{job=\"clickkart-services\"})", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "red", "value": null }, { "color": "orange", "value": 10 }, { "color": "green", "value": 15 }
+          ] }
+        }
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "HikariCP — active connections per service",
+      "description": "The metric that would have caught the real incident: 10 services x a default pool of 10 exceeds Postgres's default max_connections of 100, and the first symptom was psql itself being refused. Watch this against max_connections, not against zero.",
+      "gridPos": { "h": 8, "w": 12, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum by (service) (hikaricp_connections_active{service=~\"$service\"})",
+        "legendFormat": "{{service}}", "refId": "A"
+      }]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Total DB connections held",
+      "description": "Sum across every pool. Postgres defaults to max_connections=100; crossing it does not degrade gracefully, it refuses new connections outright.",
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "expr": "sum(hikaricp_connections{job=\"clickkart-services\"})", "refId": "A" }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": { "mode": "absolute", "steps": [
+            { "color": "green", "value": null }, { "color": "orange", "value": 70 }, { "color": "red", "value": 90 }
+          ] }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "5xx responses per second",
+      "description": "Server-side failures only. 4xx is deliberately excluded: on this platform a 409 is usually a correct business answer - a customer losing the race for the last unit - and counting those as errors would bury real faults under normal checkout traffic.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum by (service) (rate(http_server_requests_seconds_count{status=~\"5..\",service=~\"$service\"}[5m]))",
+        "legendFormat": "{{service}}", "refId": "A"
+      }]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Request latency — p95",
+      "description": "p95 rather than mean. Checkout fans out to User, then Product per line, then Inventory per line, so its tail is where a slow downstream service shows up first - and a mean would hide it.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "histogram_quantile(0.95, sum by (le, service) (rate(http_server_requests_seconds_bucket{service=~\"$service\"}[5m])))",
+        "legendFormat": "{{service}}", "refId": "A"
+      }],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "JVM heap used",
+      "description": "The Docker VM here is under 4 GB and has been OOM-killed by the full stack more than once. This is where that becomes visible before a container exits 137.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum by (service) (jvm_memory_used_bytes{area=\"heap\",service=~\"$service\"})",
+        "legendFormat": "{{service}}", "refId": "A"
+      }],
+      "fieldConfig": { "defaults": { "unit": "bytes" } }
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Request rate by outcome",
+      "description": "Splitting by outcome rather than plotting a single total: the shape of a spike matters more than its height. A rise in CLIENT_ERROR alongside flat SUCCESS is a client that has started sending something wrong, which reads nothing like an outage.",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{
+        "expr": "sum by (outcome) (rate(http_server_requests_seconds_count{service=~\"$service\"}[5m]))",
+        "legendFormat": "{{outcome}}", "refId": "A"
+      }]
+    }
+  ]
+}

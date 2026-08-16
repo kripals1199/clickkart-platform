@@ -145,6 +145,8 @@ without a Docker volume.
 |---|---|
 | Aggregated Swagger UI | http://localhost:8080/swagger-ui.html |
 | Postman collection | [`docs/api/`](docs/api/) — 110 requests, import and run "Start here" first |
+| Prometheus | http://localhost:9090 |
+| Grafana | http://localhost:3000 — dashboard provisioned, login from `GRAFANA_ADMIN_PASSWORD` |
 | Eureka dashboard | http://localhost:8761 |
 | Gateway health | http://localhost:8080/actuator/health |
 

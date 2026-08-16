@@ -1,0 +1,11 @@
+# Provisioned, not clicked. A datasource configured through the UI lives only in that Grafana's
+# volume - so a fresh container, or a colleague, gets an empty Grafana and no way to know what was
+# meant to be there.
+apiVersion: 1
+datasources:
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://clickkart-prometheus:9090
+    isDefault: true
+    editable: false

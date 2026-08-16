@@ -1,0 +1,9 @@
+# Config baked in rather than bind-mounted.
+#
+# Partly because Docker Desktop only bind-mounts drives that have been explicitly shared, which makes
+# a compose file that works on one machine fail on the next for reasons unrelated to the platform.
+# Mostly because an image carrying its own scrape config is reproducible: the container that runs in
+# CI is the container that ran here, rather than one that depends on a file happening to exist at a
+# path outside it.
+FROM prom/prometheus:v3.1.0
+COPY prometheus.yml /etc/prometheus/prometheus.yml

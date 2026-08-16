@@ -65,7 +65,64 @@ services:
     networks:
       - clickkart-net
 
+  # ---------------------------------------------------------------------------------------------
+  # Observability. Here rather than in the app tier because Prometheus and Grafana are local
+  # stand-ins for infrastructure a real environment provides - the same reason Postgres and Redis
+  # live in this file. Nothing in the application tier depends on them, and the platform runs
+  # perfectly well with this file omitted.
+  # ---------------------------------------------------------------------------------------------
+  prometheus:
+    build:
+      context: ./observability
+      dockerfile: Dockerfile.prometheus
+    image: clickkart/prometheus:1.0.0
+    container_name: clickkart-prometheus
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - prometheus-data:/prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - clickkart-net
+
+  grafana:
+    build:
+      context: ./observability
+      dockerfile: Dockerfile.grafana
+    image: clickkart/grafana:1.0.0
+    container_name: clickkart-grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    environment:
+      # A default admin/admin login is the single most common way a monitoring stack ends up
+      # readable from the internet, so the password is required rather than defaulted.
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set}
+      # Nothing here is worth handing to a third party, and a monitoring tool that phones home about
+      # a private platform's topology is a small, avoidable leak.
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    networks:
+      - clickkart-net
+
 networks:
   clickkart-net:
     name: clickkart-net
     driver: bridge
+
+volumes:
+  prometheus-data:
+  grafana-data:

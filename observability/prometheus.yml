@@ -1,0 +1,60 @@
+# observability/prometheus.yml
+#
+# Static targets rather than Eureka service discovery, deliberately.
+#
+# Prometheus can discover through Eureka, and in a cluster it should - but here the target list is
+# the same fourteen containers docker-compose already names, and a static list makes "why is this
+# service missing from Grafana" answerable by reading one file instead of debugging a discovery
+# integration. The Kubernetes manifests use pod annotations instead, which is the right mechanism
+# there; this file is the local-development equivalent, not the production one.
+#
+# Scraped over the compose network by container name, so no ports need publishing to the host.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    environment: dev
+    platform: clickkart
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Every Spring Boot service exposes the same path. metrics_path is set once here rather than
+  # per-target because they are uniform by design - a service that needed a different one would be
+  # a service that had drifted from the platform's actuator conventions.
+  - job_name: clickkart-services
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['clickkart-api-gateway:8080']
+        labels: { service: api-gateway, tier: edge }
+      - targets: ['clickkart-auth-service:8081']
+        labels: { service: auth, tier: application }
+      - targets: ['clickkart-notification-service:8082']
+        labels: { service: notification, tier: application }
+      - targets: ['clickkart-audit-log-service:8083']
+        labels: { service: audit-log, tier: application }
+      - targets: ['clickkart-captcha-service:8084']
+        labels: { service: captcha, tier: application }
+      - targets: ['clickkart-user-service:8085']
+        labels: { service: user, tier: application }
+      - targets: ['clickkart-category-service:8086']
+        labels: { service: category, tier: application }
+      - targets: ['clickkart-product-service:8087']
+        labels: { service: product, tier: application }
+      - targets: ['clickkart-inventory-service:8088']
+        labels: { service: inventory, tier: application }
+      - targets: ['clickkart-order-service:8089']
+        labels: { service: order, tier: application }
+      - targets: ['clickkart-payment-service:8090']
+        labels: { service: payment, tier: application }
+      - targets: ['clickkart-cart-service:8091']
+        labels: { service: cart, tier: application }
+      - targets: ['clickkart-admin-service:8092']
+        labels: { service: admin, tier: application }
+      - targets: ['clickkart-eureka-server:8761']
+        labels: { service: eureka, tier: supporting }
+      - targets: ['clickkart-config-server:8888']
+        labels: { service: config-server, tier: supporting }

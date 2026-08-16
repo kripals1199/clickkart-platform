@@ -1,0 +1,8 @@
+# Same reasoning as Dockerfile.prometheus: provisioning travels with the image.
+#
+# Provisioned rather than configured through the UI, so a fresh container comes up with the
+# datasource and dashboards already there. A Grafana configured by clicking keeps that work in one
+# volume on one machine, where nobody else can see it and nothing records what it was meant to be.
+FROM grafana/grafana:11.5.1
+COPY grafana/provisioning /etc/grafana/provisioning
+COPY grafana/dashboards /var/lib/grafana/dashboards
