@@ -20,6 +20,11 @@ clickkart-user-service/
 clickkart-category-service/
 clickkart-product-service/
 clickkart-inventory-service/
+clickkart-order-service/
+clickkart-payment-service/
+clickkart-cart-service/
+clickkart-admin-service/
+clickkart-angular-frontend/
 clickkart-config-repository/
 
 # --- Build / runtime artifacts ---
