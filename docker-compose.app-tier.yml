@@ -637,9 +637,50 @@ services:
     networks:
       - clickkart-net
 
-  # Admin Service (14) joins this file as its own `docker build`
-  # entries, following the exact pattern above, as each is built per the build order - not stubbed
-  # out here ahead of having real code to build.
+  admin-service:
+    build:
+      context: ./clickkart-admin-service
+      dockerfile: Dockerfile
+    image: clickkart/admin-service:1.0.0
+    container_name: clickkart-admin-service
+    ports:
+      - "${ADMIN_SERVICE_PORT:-8092}:8092"
+    environment:
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-dev}
+      SERVER_PORT: 8092
+      CONFIG_SERVER_HOST: config-server
+      CONFIG_SERVER_PORT: 8888
+      CONFIG_SERVER_USERNAME: ${CONFIG_SERVER_USERNAME:-admin}
+      CONFIG_SERVER_PASSWORD: ${CONFIG_SERVER_PASSWORD:?CONFIG_SERVER_PASSWORD must be set}
+      ADMIN_SERVICE_HOSTNAME: ${ADMIN_SERVICE_HOSTNAME:-admin-service}
+      EUREKA_SERVER_HOST: eureka-server
+      EUREKA_DASHBOARD_USERNAME: ${EUREKA_DASHBOARD_USERNAME:-admin}
+      EUREKA_DASHBOARD_PASSWORD: ${EUREKA_DASHBOARD_PASSWORD:?EUREKA_DASHBOARD_PASSWORD must be set}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set - must match auth-service's JWT_SECRET exactly}
+      # NO DB_* variables. This is the only service in this file with no Tier-3 database endpoint,
+      # because it has no database - it stores nothing and assembles every number it returns from
+      # the service that owns it.
+      #
+      # NO internal API keys either, and that is the design rather than an omission. It reads from
+      # four services by forwarding the operator's own bearer token, so each of them applies its own
+      # ROLE_ADMIN check against the real person. Holding platform-wide keys here would make this
+      # container the single most valuable credential on the platform.
+      REVOCATION_REDIS_HOST: ${GATEWAY_REDIS_HOST:-gateway-redis}
+      REVOCATION_REDIS_PORT: ${GATEWAY_REDIS_PORT:-6379}
+      REVOCATION_REDIS_PASSWORD: ${GATEWAY_REDIS_PASSWORD:-}
+      ADMIN_TRUSTED_PROXY_CIDRS: ${ADMIN_TRUSTED_PROXY_CIDRS:-}
+    depends_on:
+      config-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8092/actuator/health/readiness"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 40s
+    networks:
+      - clickkart-net
+
 
 # Declared the same way as docker-compose.dev-infra.yml (driver: bridge), not external: true -
 # Compose treats an identical network declaration across merged files as idempotent, so this

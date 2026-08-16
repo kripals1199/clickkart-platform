@@ -61,6 +61,7 @@ deliberately. `docker-compose.dev-infra.yml` is the only place local stand-ins m
 | [clickkart-order-service](https://github.com/kripals1199/clickkart-order-service) | 8089 | Order lifecycle, checkout orchestration, seller fulfilment |
 | [clickkart-payment-service](https://github.com/kripals1199/clickkart-payment-service) | 8090 | Payment capture, refunds, outcome reconciliation |
 | [clickkart-cart-service](https://github.com/kripals1199/clickkart-cart-service) | 8091 | Per-user basket, priced live from the catalog |
+| [clickkart-admin-service](https://github.com/kripals1199/clickkart-admin-service) | 8092 | Read-only cross-service operator views (no data, no credentials) |
 
 ---
 
@@ -134,7 +135,7 @@ committed.
 docker compose -f docker-compose.dev-infra.yml -f docker-compose.app-tier.yml up -d
 ```
 
-Brings up 17 containers: 14 services, two Redis instances, and Mailpit as the local SMTP catcher.
+Brings up 18 containers: 15 services, two Redis instances, and Mailpit as the local SMTP catcher.
 Postgres is **not** containerized — it's your host install, so data survives `docker compose down`
 without a Docker volume.
 
@@ -165,14 +166,17 @@ without a Docker volume.
 
 ## Project status
 
-**Built and verified:** the fourteen services above, running end-to-end locally with service
+**Built and verified:** all fifteen services above, running end-to-end locally with service
 discovery, edge auth, database isolation, and full endpoint coverage.
 
-**Not yet built:** Admin Service alone. The customer journey is now complete end to end — fill a
-basket, check out from it, have stock held, pay, and have a seller ship it, with refunds available to
-an operator. The one thing that does not happen is that **no money actually moves**: no payment
-processor is integrated, so every capture is simulated, stamped `simulated=true`, and Payment Service
-refuses to start in `prod` on a fake gateway.
+**All fourteen planned services are built**, plus Captcha Service, which was added along the way when
+bot protection was implemented. The customer journey runs end to end — fill a basket, check out from
+it, have stock held, pay, have a seller ship it — with refunds and a cross-service operator view
+behind it.
+
+The one thing that does not happen is that **no money actually moves**: no payment processor is
+integrated, so every capture is simulated, stamped `simulated=true`, and Payment Service refuses to
+start in `prod` on a fake gateway rather than faking captures where it would matter.
 
 **Known limitations:**
 - Notification Service has real SMTP and MSG91 senders, but falls back to logging when no

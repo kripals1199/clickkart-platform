@@ -3,14 +3,13 @@
 Status: living document. Reflects the locked architecture and the strict build order
 (Eureka -> Config Server -> Gateway -> Auth Service -> 10 more business services, one at a
 time, each gated by an explicit "confirmed deployable" from the project owner before the next
-starts). As of this document, 14 services are built: Eureka Discovery Server, Config Server, API
+starts). As of this document, all 15 are built: Eureka Discovery Server, Config Server, API
 Gateway, Auth Service, Notification Service, Audit Log Service, Captcha Service, User Service,
-Category Service, Product Service, Inventory Service, Order Service, Payment Service and Cart
-Service.
+Category Service, Product Service, Inventory Service, Order Service, Payment Service, Cart Service
+and Admin Service.
 
 Captcha Service was not part of the original 14 - it was added when CAPTCHA coverage of the
-public endpoints was implemented - so what remains is 1 of the originally planned services:
-Admin Service.
+public endpoints was implemented - so the original 14 are complete, with Captcha making 15.
 
 ## Why this document exists
 
@@ -118,7 +117,7 @@ Tier 2 (below)
 | 11 | Payment Service | Payment capture, refunds, and reporting outcomes back to Order Service. **No real processor is integrated**: the gateway is an interface with a simulator behind it, every simulated row is stamped `simulated=true`, and the application **refuses to start under the `prod` profile** on a fake gateway - deliberately unlike Notification Service, whose silent logging fallback is a documented limitation. Also owns the platform's only unauthenticated route, the processor webhook, authenticated by HMAC signature over the raw body instead of a token | Built |
 | 12 | Notification Service | Email/SMS dispatch - real SMTP and MSG91 senders, falling back to logging senders when no credentials are configured | Built |
 | 13 | Audit Log Service | Central audit trail - Auth Service calls this via OpenFeign + Resilience4j and treats it as a **required** dependency (register/login/etc. fail with 503 if it's unreachable, rather than degrading silently). User Service treats it the same way | Built |
-| 14 | Admin Service | Administrative operations across the platform | Not started |
+| 14 | Admin Service | Read-only cross-service operator views: a platform dashboard, a worklist of what needs a human, and the service registry. Deliberately NOT a facade over every service's admin API - it forwards the operator's own bearer token instead of holding internal keys, so each service applies its own ROLE_ADMIN check and this one can never show anything the caller could not fetch themselves. Stores nothing and cannot write | Built |
 | — | Captcha Service | Self-hosted image CAPTCHA protecting the public endpoints. Not in the original 14; added when bot-protection was implemented | Built |
 
 > **Order Service (#10) was built before Cart Service (#9), and the gate it skipped turned out not
