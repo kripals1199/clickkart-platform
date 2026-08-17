@@ -15,7 +15,7 @@
         "label": "Service",
         "type": "query",
         "datasource": { "type": "prometheus", "uid": "prometheus" },
-        "query": "label_values(up{job=\"clickkart-services\"}, service)",
+        "query": "label_values(up{job=~\"clickkart-(services|gateway)\"}, service)",
         "includeAll": true,
         "multi": true,
         "current": { "text": "All", "value": "$__all" },
@@ -31,7 +31,7 @@
       "description": "A service that is registered in Eureka but not answering a scrape is still down. This counts what actually responds.",
       "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "expr": "sum(up{job=\"clickkart-services\"})", "refId": "A" }],
+      "targets": [{ "expr": "sum(up{job=~\"clickkart-(services|gateway)\"})", "refId": "A" }],
       "fieldConfig": {
         "defaults": {
           "thresholds": { "mode": "absolute", "steps": [
@@ -59,7 +59,7 @@
       "description": "Sum across every pool. Postgres defaults to max_connections=100; crossing it does not degrade gracefully, it refuses new connections outright.",
       "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "targets": [{ "expr": "sum(hikaricp_connections{job=\"clickkart-services\"})", "refId": "A" }],
+      "targets": [{ "expr": "sum(hikaricp_connections{job=~\"clickkart-(services|gateway)\"})", "refId": "A" }],
       "fieldConfig": {
         "defaults": {
           "thresholds": { "mode": "absolute", "steps": [

@@ -25,11 +25,27 @@ scrape_configs:
   # Every Spring Boot service exposes the same path. metrics_path is set once here rather than
   # per-target because they are uniform by design - a service that needed a different one would be
   # a service that had drifted from the platform's actuator conventions.
-  - job_name: clickkart-services
+  # The Gateway is scraped as its own job because it is the only service that terminates TLS, and
+  # scheme is a per-job setting - it cannot vary per target inside a shared job.
+  #
+  # This job is paired with TLS_ENABLED=true on the gateway container. The two must be flipped
+  # together: https here against a plaintext listener fails to scrape, and so does http against an
+  # https one. If you run with TLS off, change scheme back to http.
+  - job_name: clickkart-gateway
     metrics_path: /actuator/prometheus
+    scheme: https
+    tls_config:
+      # The development certificate is self-signed, so there is no chain to verify against. This
+      # is a scrape inside the compose network, not a client trusting an unknown server on the
+      # internet. A real deployment presents a CA-issued certificate and drops this block.
+      insecure_skip_verify: true
     static_configs:
       - targets: ['clickkart-api-gateway:8080']
         labels: { service: api-gateway, tier: edge }
+
+  - job_name: clickkart-services
+    metrics_path: /actuator/prometheus
+    static_configs:
       - targets: ['clickkart-auth-service:8081']
         labels: { service: auth, tier: application }
       - targets: ['clickkart-notification-service:8082']
