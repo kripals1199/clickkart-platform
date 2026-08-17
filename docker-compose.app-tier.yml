@@ -108,15 +108,24 @@ services:
       REDIS_PASSWORD: ${GATEWAY_REDIS_PASSWORD:-}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://localhost:4200}
     volumes:
-      # Read-only, and the key material stays on the host rather than being baked into the image:
-      # an image gets pushed to a registry, a bind mount does not. Needs the drive shared in
-      # Docker Desktop's file-sharing settings. Run scripts/generate-dev-tls.sh first.
-      - ./certs:/app/certs:ro
+      # A named volume rather than a bind mount of ./certs. Docker Desktop refuses to bind-mount a
+      # path on a drive that is not in its File Sharing list, and this project lives on D: - the
+      # same limitation that forced the Loki and Promtail configs to be baked into images.
+      #
+      # The volume is populated by scripts/seed-gateway-certs.sh, which uses `docker cp`. That
+      # streams the file over the Docker API and so needs no file sharing at all. The key still
+      # never enters the image, which is the property worth protecting: images get pushed to
+      # registries, volumes stay on the host.
+      - gateway-certs:/app/certs:ro
     depends_on:
       config-server:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8080/actuator/health"]
+      # Derives its scheme from TLS_ENABLED, like the Dockerfile's own HEALTHCHECK - and this one
+      # is what actually runs, because a compose healthcheck overrides the image's. Fixing only
+      # the Dockerfile left the container probing http against an https listener, which fails with
+      # "Empty reply from server" and marks a perfectly healthy Gateway unhealthy.
+      test: ["CMD", "sh", "-c", "SCHEME=http; [ \"$$TLS_ENABLED\" = \"true\" ] && SCHEME=https; curl -fsSk \"$$SCHEME://localhost:${SERVER_PORT:-8080}/actuator/health\""]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -706,3 +715,10 @@ networks:
   clickkart-net:
     name: clickkart-net
     driver: bridge
+
+volumes:
+  # Holds the Gateway's TLS keystore. Populated by scripts/seed-gateway-certs.sh rather than
+  # declared external, so `up` still works on a clean machine: the volume is created empty and
+  # the Gateway fails loudly on a missing keystore instead of quietly serving plaintext.
+  gateway-certs:
+    name: clickkart-gateway-certs
