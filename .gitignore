@@ -27,6 +27,21 @@ clickkart-admin-service/
 clickkart-angular-frontend/
 clickkart-config-repository/
 
+# --- TLS key material ---
+# Generated locally by scripts/generate-dev-tls.sh and never committed. These repositories are
+# public: a committed keystore is a published private key, and rotating it means reissuing every
+# certificate that chains to it. The pattern comes before the tooling that creates the files on
+# purpose, so there is no window in which a stray `git add -A` can pick one up.
+*.p12
+*.jks
+*.keystore
+*.truststore
+*.pem
+*.key
+*.crt
+*.csr
+certs/
+
 # --- Build / runtime artifacts ---
 target/
 logs/
